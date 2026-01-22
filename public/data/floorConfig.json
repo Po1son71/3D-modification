@@ -1,0 +1,14 @@
+{
+    "floor": {
+        "name": "Data Center Floor",
+        "gridSize": {
+            "width": 30,
+            "depth": 20
+        },
+        "tileSize": 2.0,
+        "zones": []
+    },
+    "racks": [],
+    "acUnits": [],
+    "generators": []
+}

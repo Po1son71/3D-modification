@@ -1,0 +1,63 @@
+{
+  "warehouse": {
+    "rows": 10,
+    "columns": 10
+  },
+  "inventory": [
+    {
+      "id": "item-1",
+      "type": "pallet",
+      "row": 10,
+      "column": 1,
+      "stackHeight": 29,
+      "position": {
+        "x": 0,
+        "z": 0
+      }
+    },
+    {
+      "id": "item-2",
+      "type": "pallet",
+      "row": 2,
+      "column": 5,
+      "stackHeight": 13,
+      "position": {
+        "x": 0,
+        "z": 1
+      }
+    },
+    {
+      "id": "item-3",
+      "type": "pallet",
+      "row": 2,
+      "column": 1,
+      "stackHeight": 10,
+      "position": {
+        "x": 1,
+        "z": 0
+      }
+    },
+    {
+      "id": "item-4",
+      "type": "box",
+      "row": 3,
+      "column": 3,
+      "stackHeight": 4,
+      "position": {
+        "x": 2,
+        "z": 2
+      }
+    },
+    {
+      "id": "item-5",
+      "type": "pallet",
+      "row": 6,
+      "column": 6,
+      "stackHeight": 1,
+      "position": {
+        "x": 5,
+        "z": 5
+      }
+    }
+  ]
+}
