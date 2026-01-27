@@ -38,6 +38,17 @@
       }
     },
     {
+      "id": "item-32",
+      "type": "pallet",
+      "row": 7,
+      "column": 1,
+      "stackHeight": 10,
+      "position": {
+        "x": 1,
+        "z": 0
+      }
+    },
+    {
       "id": "item-4",
       "type": "box",
       "row": 3,
@@ -58,6 +69,52 @@
         "x": 5,
         "z": 5
       }
+    }
+  ],
+  "pathways": [
+    {
+      "id": "path-1",
+      "startRow": 10,
+      "startCol": 0,
+      "endRow": 0,
+      "endCol": 9,
+      "width": 0.8,
+      "color": "#FFD700",
+      "opacity": 0.5,
+      "type": "floor"
+    },
+    {
+      "id": "path-2",
+      "startRow": 0,
+      "startCol": 5,
+      "endRow": 11,
+      "endCol": 5,
+      "width": 0.8,
+      "color": "#87CEEB",
+      "opacity": 0.5,
+      "type": "floor"
+    },
+    {
+      "id": "path-4",
+      "startRow": 0,
+      "startCol": 6,
+      "endRow": 31,
+      "endCol": 6,
+      "width": 0.8,
+      "color": "#87CEEB",
+      "opacity": 0.5,
+      "type": "floor"
+    },
+    {
+      "id": "path-3",
+      "startRow": 5,
+      "startCol": 0,
+      "endRow": 5,
+      "endCol": 9,
+      "width": 0.6,
+      "color": "#90EE90",
+      "opacity": 0.5,
+      "type": "floor"
     }
   ]
 }

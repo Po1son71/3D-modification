@@ -2,12 +2,13 @@ import React, { useEffect, Suspense } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Html } from "@react-three/drei";
 import WarehouseFloor from "./WarehouseFloor";
+import WarehousePaths from "./WarehousePaths";
 import Pallet from "./Pallet";
 import Box from "./Box";
 import useWarehouseStore from "../../store/warehouseStore";
 
 const WarehouseScene = () => {
-    const { inventory, rows, columns, loadInventory, isLoading } = useWarehouseStore();
+    const { inventory, rows, columns, loadInventory, loadPathways, isLoading } = useWarehouseStore();
     const CELL_SIZE = 2.0;
 
     useEffect(() => {
@@ -16,12 +17,14 @@ const WarehouseScene = () => {
             .then(res => res.json())
             .then(data => {
                 loadInventory(data.inventory || []);
+                loadPathways(data.pathways || []);
             })
             .catch(err => {
                 console.error('Failed to load warehouse inventory:', err);
                 loadInventory([]);
+                loadPathways([]);
             });
-    }, [loadInventory]);
+    }, [loadInventory, loadPathways]);
 
     if (isLoading) {
         return (
@@ -57,6 +60,9 @@ const WarehouseScene = () => {
                 {/* Warehouse Floor */}
                 <WarehouseFloor />
 
+                {/* Warehouse Pathways */}
+                <WarehousePaths />
+
                 {/* Render inventory items */}
                 {inventory.map((item) => {
                     // Convert 1-based row/column to 0-based for positioning
@@ -79,6 +85,15 @@ const WarehouseScene = () => {
                     } else if (item.type === 'box') {
                         return (
                             <Box
+                                key={item.id}
+                                position={position}
+                                stackHeight={item.stackHeight || 1}
+                            />
+                        );
+                    }
+                    else if (item.type === 'sack') {
+                        return (
+                            <Sack
                                 key={item.id}
                                 position={position}
                                 stackHeight={item.stackHeight || 1}

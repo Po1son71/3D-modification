@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { Grid } from "@react-three/drei";
+import { DoubleSide } from "three";
 import useWarehouseStore from "../../store/warehouseStore";
 
 const CELL_SIZE = 2.0; // 2 meters per cell
@@ -29,7 +30,7 @@ const WarehouseFloor = () => {
                 const x = col * CELL_SIZE + CELL_SIZE / 2;
                 const z = row * CELL_SIZE + CELL_SIZE / 2;
                 const isEven = (row + col) % 2 === 0;
-                
+
                 return (
                     <mesh
                         key={`${row}-${col}`}
@@ -65,7 +66,7 @@ const WarehouseFloor = () => {
                     </mesh>
                 );
             })}
-            
+
             {Array.from({ length: columns }).map((_, colIndex) => {
                 const colNumber = colIndex + 1; // Display as 1-based
                 return (
@@ -75,6 +76,24 @@ const WarehouseFloor = () => {
                     </mesh>
                 );
             })}
+            {/* Transparent Walls */}
+            {/* Left Wall (at x=0) */}
+            <mesh position={[0, 3, floorDepth / 2]}>
+                <boxGeometry args={[0.1, 6, floorDepth]} />
+                <meshBasicMaterial color="#cccccc" transparent opacity={0.2} side={DoubleSide} />
+            </mesh>
+
+            {/* Right Wall (at x=floorWidth) */}
+            <mesh position={[floorWidth, 3, floorDepth / 2]}>
+                <boxGeometry args={[0.1, 6, floorDepth]} />
+                <meshBasicMaterial color="#cccccc" transparent opacity={0.2} side={DoubleSide} />
+            </mesh>
+
+            {/* Back Wall (at z=0) */}
+            <mesh position={[floorWidth / 2, 3, 0]}>
+                <boxGeometry args={[floorWidth, 6, 0.1]} />
+                <meshBasicMaterial color="#cccccc" transparent opacity={0.2} side={DoubleSide} />
+            </mesh>
         </group>
     );
 };
