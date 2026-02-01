@@ -15,18 +15,18 @@ const EditorToolbar = () => {
         setPathwayWidth,
         setPathwayOpacity,
         clearGrid,
-        exportGridToPathways
+        exportAllData
     } = useWarehouseStore();
 
     const handleExport = () => {
-        const pathways = exportGridToPathways();
-        const jsonString = JSON.stringify(pathways, null, 2);
+        const allData = exportAllData();
+        const jsonString = JSON.stringify(allData, null, 2);
         setShowExport(jsonString);
     };
 
     const handleCopyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
-        alert('Pathways JSON copied to clipboard!');
+        alert('Warehouse data JSON copied to clipboard!');
     };
 
     const handleClearGrid = () => {
@@ -192,7 +192,7 @@ const EditorToolbar = () => {
                         overflow: 'auto',
                         boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
                     }}>
-                        <h3 style={{ marginTop: 0 }}>Exported Pathways JSON</h3>
+                        <h3 style={{ marginTop: 0 }}>Exported Warehouse Data JSON</h3>
                         <pre style={{
                             backgroundColor: '# f5f5f5',
                             padding: '16px',
