@@ -22,6 +22,7 @@ const useWarehouseStore = create((set) => ({
     pathwayColor: '#FFD700', // Current pathway color
     pathwayWidth: 0.8, // Pathway width
     pathwayOpacity: 0.5, // Pathway opacity
+    editMode: "draw",
 
     // Actions
     setWarehouseConfig: (rows, columns) => set({
@@ -69,6 +70,8 @@ const useWarehouseStore = create((set) => ({
 
     // Edit Mode actions
     setViewMode: (mode) => set({ viewMode: mode }),
+
+    setEditMode: (mode) => set({ editMode: mode }),
 
     setSelectedTool: (tool) => set({ selectedTool: tool }),
 
@@ -135,7 +138,7 @@ const useWarehouseStore = create((set) => ({
                         width: cell.width || 0.8,
                         color: cell.color || '#FFD700',
                         opacity: cell.opacity || 0.5,
-                        type: 'floor'
+                        type: 'pathway'
                     });
                 }
             }

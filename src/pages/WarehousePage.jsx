@@ -6,7 +6,7 @@ import EditorToolbar from "../components/Warehouse/EditorToolbar";
 import useWarehouseStore from "../store/warehouseStore";
 
 const WarehousePage = () => {
-    const { isConfigured, viewMode, setViewMode } = useWarehouseStore();
+    const { isConfigured, viewMode, setViewMode, editMode, setEditMode } = useWarehouseStore();
     const [showConfig, setShowConfig] = useState(!isConfigured);
 
     const handleConfigure = () => {
@@ -22,6 +22,9 @@ const WarehousePage = () => {
         setViewMode(viewMode === 'display' ? 'edit' : 'display');
     };
 
+    const  toggleEditMode =() =>{
+        setEditMode(editMode === "draw"?"selection" : "draw")
+    }
     return (
         <div style={{
             width: "100vw",
@@ -86,6 +89,24 @@ const WarehousePage = () => {
                             {viewMode === 'display' ? '✏️ Edit Mode' : '👁️ Display Mode'}
                         </button>
                     )}
+                    
+                    {viewMode === 'edit' &&
+                        <button onClick={toggleEditMode}
+                        style={{
+                            padding: '8px 16px',
+                            fontSize: '14px',
+                            backgroundColor: viewMode === 'selection' ? '#2e7d32' : 'rgba(255,255,255,0.2)',
+                            color: '#ffffff',
+                            border: '1px solid rgba(255,255,255,0.3)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: 500,
+                            transition: 'background-color 0.2s'
+                        }}
+                    >
+                        {editMode === 'draw' ? '✏️ Draw Mode' : '✏️ Selection Mode'}
+                    </button>
+                    }
                     <button
                         onClick={handleReset}
                         style={{

@@ -6,7 +6,7 @@ import useWarehouseStore from "../../store/warehouseStore";
 const CELL_SIZE = 2.0; // 2 meters per cell
 const FLOOR_HEIGHT = 0.1;
 
-const WarehouseFloor = () => {
+const WarehouseFloor = ({handleClick, selectedCell}) => {
     const { rows, columns } = useWarehouseStore();
 
     const floorWidth = columns * CELL_SIZE;
@@ -30,16 +30,23 @@ const WarehouseFloor = () => {
                 const x = col * CELL_SIZE + CELL_SIZE / 2;
                 const z = row * CELL_SIZE + CELL_SIZE / 2;
                 const isEven = (row + col) % 2 === 0;
-
+                const isSelected =
+                    selectedCell &&
+                    selectedCell.row === row &&
+                    selectedCell.col === col;
                 return (
                     <mesh
                         key={`${row}-${col}`}
                         position={[x, 0, z]}
                         rotation={[-Math.PI / 2, 0, 0]}
+                        onClick={(e)=>{
+                            e.stopPropagation();
+                            handleClick(row, col)
+                        }}
                         receiveShadow
                     >
                         <planeGeometry args={[CELL_SIZE, CELL_SIZE]} />
-                        <meshStandardMaterial color={isEven ? "#f5f5f5" : "#ffffff"} />
+                        <meshStandardMaterial color={isSelected? "#4abbe7" :isEven ? "#f5f5f5" : "#ffffff"} />
                     </mesh>
                 );
             })}

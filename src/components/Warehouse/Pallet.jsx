@@ -8,7 +8,7 @@ const PalletModel = ({ url }) => {
     return <primitive object={gltf.scene.clone()} />;
 };
 
-const Pallet = ({ position, stackHeight = 1 }) => {
+const Pallet = ({ position, stackHeight = 1 ,onClick, item}) => {
     const palletRef = useRef();
     
     // Check if GLB model exists (set to true when you add the GLB file)
@@ -20,7 +20,11 @@ const Pallet = ({ position, stackHeight = 1 }) => {
     return (
         <group
             ref={palletRef}
-            position={[position.x, totalHeight / 2, position.z]}
+            position={[position.x, (position.y && position.y > 0) ? position.y : totalHeight / 2, position.z]}
+            onClick={(e) => {
+                e.stopPropagation();
+                onClick?.(item);
+            }}
         >
             {useGLBModel ? (
                 <Suspense fallback={null}>

@@ -11,9 +11,13 @@ const GridEditor = () => {
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const [scale, setScale] = useState(1);
 
+    const [selectionStart, setSelectionStart] = useState(null);
+    const [selectionEnd, setSelectionEnd] = useState(null);
+
     const {
         gridData,
         selectedTool,
+        editMode,
         pathwayColor,
         pathwayWidth,
         pathwayOpacity,
@@ -104,13 +108,36 @@ const GridEditor = () => {
         ctx.lineWidth = 2;
         ctx.strokeRect(offset.x, offset.y, GRID_SIZE * cellSize, GRID_SIZE * cellSize);
 
-    }, [gridData, hoveredCell, offset, scale]);
+        // selection rectangle
+        if (selectionStart && selectionEnd) {
+            const x =
+                Math.min(selectionStart.col, selectionEnd.col) * cellSize +
+                offset.x;
+            const y =
+                Math.min(selectionStart.row, selectionEnd.row) * cellSize +
+                offset.y;
+
+            const w =
+                (Math.abs(selectionEnd.col - selectionStart.col) + 1) * cellSize;
+            const h =
+                (Math.abs(selectionEnd.row - selectionStart.row) + 1) * cellSize;
+
+            ctx.strokeStyle = "#1976d2";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(x, y, w, h);
+            ctx.setLineDash([]);
+        }
+    }, [gridData, hoveredCell, offset, scale, selectionStart, selectionEnd]);
 
     const getCellFromMouse = (e) => {
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
 
         const cellSize = CELL_SIZE * scale;
         const col = Math.floor((x - offset.x) / cellSize);
@@ -126,27 +153,55 @@ const GridEditor = () => {
         const cell = getCellFromMouse(e);
         setHoveredCell(cell);
 
-        if (isDrawing && cell) {
+        if (!cell) return;
+
+        if ((selectedTool === 'floor' || selectedTool === 'eraser' || selectedTool === 'pathway') && editMode === 'selection' && selectionStart) {
+            setSelectionEnd(cell);
+            return;
+        }
+
+        if (isDrawing) {
             paintCell(cell.row, cell.col);
         }
     };
 
     const handleMouseDown = (e) => {
         const cell = getCellFromMouse(e);
-        if (cell) {
-            setIsDrawing(true);
-            paintCell(cell.row, cell.col);
+        if (!cell) return;
+
+        if ((selectedTool === 'floor' || selectedTool === 'eraser' || selectedTool === 'pathway') && editMode === 'selection') {
+            setSelectionStart(cell);
+            setSelectionEnd(cell);
+            return;
         }
+
+        setIsDrawing(true);
+        paintCell(cell.row, cell.col);
     };
 
     const handleMouseUp = () => {
+        if (selectedTool === 'floor' && editMode === 'selection' && selectionStart && selectionEnd) {
+            fillSelection(selectionStart, selectionEnd);
+        }
+
+        if (selectedTool === 'pathway' && editMode === 'selection' && selectionStart && selectionEnd) {
+            fillPathway(selectionStart, selectionEnd);
+        }
+
+        if (selectedTool === 'eraser' && editMode === 'selection' && selectionStart && selectionEnd) {
+            removeSelection(selectionStart, selectionEnd);
+        }
+
+
         setIsDrawing(false);
+        setSelectionStart(null);
+        setSelectionEnd(null);
     };
 
     const paintCell = (row, col) => {
         let value = null;
 
-        if (selectedTool === 'floor') {
+        if (selectedTool === 'floor' && editMode === "draw") {
             value = { type: 'floor' };
         } else if (selectedTool === 'pathway') {
             value = {
@@ -160,6 +215,50 @@ const GridEditor = () => {
         }
 
         updateGridCell(row, col, value);
+    };
+
+    const fillSelection = (start, end) => {
+        const minRow = Math.min(start.row, end.row);
+        const maxRow = Math.max(start.row, end.row);
+        const minCol = Math.min(start.col, end.col);
+        const maxCol = Math.max(start.col, end.col);
+
+        for (let row = minRow; row <= maxRow; row++) {
+            for (let col = minCol; col <= maxCol; col++) {
+                updateGridCell(row, col, { type: "floor" });
+            }
+        }
+    };
+
+    const removeSelection = (start, end) => {
+        const minRow = Math.min(start.row, end.row);
+        const maxRow = Math.max(start.row, end.row);
+        const minCol = Math.min(start.col, end.col);
+        const maxCol = Math.max(start.col, end.col);
+
+        for (let row = minRow; row <= maxRow; row++) {
+            for (let col = minCol; col <= maxCol; col++) {
+                updateGridCell(row, col, null);
+            }
+        }
+    }
+
+    const fillPathway = (start, end) => {
+        const minRow = Math.min(start.row, end.row);
+        const maxRow = Math.max(start.row, end.row);
+        const minCol = Math.min(start.col, end.col);
+        const maxCol = Math.max(start.col, end.col);
+
+        for (let row = minRow; row <= maxRow; row++) {
+            for (let col = minCol; col <= maxCol; col++) {
+                updateGridCell(row, col, {
+                    type: 'pathway',
+                    color: pathwayColor,
+                    width: pathwayWidth,
+                    opacity: pathwayOpacity
+                });
+            }
+        }
     };
 
     const handleWheel = (e) => {
@@ -224,6 +323,7 @@ const GridEditor = () => {
             }}>
                 <div><strong>Click</strong> to paint single cell</div>
                 <div><strong>Click + Drag</strong> to paint multiple cells</div>
+                <div><strong>Selection Mode: Click + Drag</strong> to paint multiple cells inside the selection box</div>
                 <div><strong>Mouse Wheel</strong> to zoom</div>
             </div>
         </div>

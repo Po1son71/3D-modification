@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
 import DataCenterPage from "./pages/DataCenterPage";
 import WarehousePage from "./pages/WarehousePage";
+import R3F from "./pages/R3F";
 
 function Navigation() {
   const location = useLocation();
@@ -51,6 +52,21 @@ function Navigation() {
       >
         Warehouse Management
       </Link>
+      <Link
+        to="/twoD"
+        style={{
+          color: location.pathname === '/twoD' ? '#ffffff' : '#e3f2fd',
+          textDecoration: 'none',
+          fontSize: '16px',
+          fontWeight: location.pathname === '/twoD' ? 600 : 400,
+          padding: '8px 16px',
+          borderRadius: '4px',
+          backgroundColor: location.pathname === '/twoD' ? 'rgba(255,255,255,0.2)' : 'transparent',
+          transition: 'all 0.2s'
+        }}
+      >
+        R3F 2D to 3D
+      </Link>
     </nav>
   );
 }
@@ -62,6 +78,7 @@ function App() {
       <Routes>
         <Route path="/" element={<DataCenterPage />} />
         <Route path="/warehouse" element={<WarehousePage />} />
+         <Route path="/twoD" element={<R3F />} />
       </Routes>
     </BrowserRouter>
   );
