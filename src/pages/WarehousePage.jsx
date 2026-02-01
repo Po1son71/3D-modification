@@ -3,11 +3,13 @@ import WarehouseScene from "../components/Warehouse/WarehouseScene";
 import WarehouseConfig from "../components/Warehouse/WarehouseConfig";
 import GridEditor from "../components/Warehouse/GridEditor";
 import EditorToolbar from "../components/Warehouse/EditorToolbar";
+import GridConfigModal from "../components/Warehouse/GridConfigModal";
 import useWarehouseStore from "../store/warehouseStore";
 
 const WarehousePage = () => {
-    const { isConfigured, viewMode, setViewMode, editMode, setEditMode } = useWarehouseStore();
+    const { isConfigured, viewMode, setViewMode, editMode, setEditMode, setWarehouseConfig, applyGridToWarehouse, rows, columns } = useWarehouseStore();
     const [showConfig, setShowConfig] = useState(!isConfigured);
+    const [showGridConfig, setShowGridConfig] = useState(false);
 
     const handleConfigure = () => {
         setShowConfig(false);
@@ -19,11 +21,28 @@ const WarehousePage = () => {
     };
 
     const toggleViewMode = () => {
-        setViewMode(viewMode === 'display' ? 'edit' : 'display');
+        if (viewMode === 'display') {
+            // Switching to edit mode - show grid config
+            setShowGridConfig(true);
+        } else {
+            // Switching to display mode - apply grid data to warehouse
+            applyGridToWarehouse();
+            setViewMode('display');
+        }
     };
 
-    const  toggleEditMode =() =>{
-        setEditMode(editMode === "draw"?"selection" : "draw")
+    const handleGridConfigure = (gridRows, gridColumns) => {
+        setWarehouseConfig(gridRows, gridColumns);
+        setShowGridConfig(false);
+        setViewMode('edit');
+    };
+
+    const handleGridConfigCancel = () => {
+        setShowGridConfig(false);
+    };
+
+    const toggleEditMode = () => {
+        setEditMode(editMode === "draw" ? "selection" : "draw")
     }
     return (
         <div style={{
@@ -89,23 +108,23 @@ const WarehousePage = () => {
                             {viewMode === 'display' ? '✏️ Edit Mode' : '👁️ Display Mode'}
                         </button>
                     )}
-                    
+
                     {viewMode === 'edit' &&
                         <button onClick={toggleEditMode}
-                        style={{
-                            padding: '8px 16px',
-                            fontSize: '14px',
-                            backgroundColor: viewMode === 'selection' ? '#2e7d32' : 'rgba(255,255,255,0.2)',
-                            color: '#ffffff',
-                            border: '1px solid rgba(255,255,255,0.3)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: 500,
-                            transition: 'background-color 0.2s'
-                        }}
-                    >
-                        {editMode === 'draw' ? '✏️ Draw Mode' : '✏️ Selection Mode'}
-                    </button>
+                            style={{
+                                padding: '8px 16px',
+                                fontSize: '14px',
+                                backgroundColor: viewMode === 'selection' ? '#2e7d32' : 'rgba(255,255,255,0.2)',
+                                color: '#ffffff',
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                transition: 'background-color 0.2s'
+                            }}
+                        >
+                            {editMode === 'draw' ? '✏️ Draw Mode' : '✏️ Selection Mode'}
+                        </button>
                     }
                     <button
                         onClick={handleReset}
@@ -140,6 +159,16 @@ const WarehousePage = () => {
                 }}>
                     <WarehouseConfig onConfigure={handleConfigure} />
                 </div>
+            )}
+
+            {/* Grid Configuration Modal */}
+            {showGridConfig && (
+                <GridConfigModal
+                    onConfigure={handleGridConfigure}
+                    onCancel={handleGridConfigCancel}
+                    defaultRows={rows}
+                    defaultColumns={columns}
+                />
             )}
 
             {/* Main Content Area */}
