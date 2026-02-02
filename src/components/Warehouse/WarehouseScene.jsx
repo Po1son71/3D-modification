@@ -87,7 +87,7 @@ const WarehouseScene = () => {
             ...item,
             position: {
                 x: item.position.x,
-                y: (totalHeight/2) + totalHeight - ((matchedItem?.stackHeight-1) *0.078) || 0,
+                y: (totalHeight / 2) + totalHeight - ((matchedItem?.stackHeight - 1) * 0.078) || 0,
                 z: item.position.z
             }
         }
@@ -108,16 +108,16 @@ const WarehouseScene = () => {
 
             {/* LEFT PANEL – COMPONENT INFO */}
             {selectedItem && (
-                <Card className="fixed top-24 left-0 h-64 bg-accent-foreground text-background shadow-lg p-4 flex flex-col z-50 rounded-lg" style={{width:"20vw"}}>
+                <Card className="fixed top-24 left-0 h-64 bg-accent-foreground text-background shadow-lg p-4 flex flex-col z-50 rounded-lg" style={{ width: "20vw" }}>
                     <CardHeader className="mb-2 items-center">
-                        <CardTitle style={{margin: '1rem', fontSize: "1.25rem"}}>Component Info</CardTitle>
+                        <CardTitle style={{ margin: '1rem', fontSize: "1.25rem" }}>Component Info</CardTitle>
                     </CardHeader>
-                    <CardContent className="flex flex-col text-sm" style={{padding: '1rem', background: 'var(--foreground)'}}>
-                        <span style={{marginBottom: '0.825rem', display: "flex", justifyContent: "space-between"}}><span className="font-medium">ID:</span> {selectedItem.id}</span>
-                        <span style={{marginBottom: '0.825rem', display: "flex", justifyContent: "space-between"}}><span className="font-medium">Type:</span> {selectedItem.type}</span>
-                        <span style={{marginBottom: '0.825rem', display: "flex", justifyContent: "space-between"}}><span className="font-medium">Stack Height:</span> {selectedItem.stackHeight}</span>
-                        <span style={{marginBottom: '0.825rem', display: "flex", justifyContent: "space-between"}}><span className="font-medium">Row:</span> {selectedItem.row}</span>
-                        <span style={{marginBottom: '0.825rem', display: "flex", justifyContent: "space-between"}}><span className="font-medium">Column:</span> {selectedItem.column}</span>
+                    <CardContent className="flex flex-col text-sm" style={{ padding: '1rem', background: 'var(--foreground)' }}>
+                        <span style={{ marginBottom: '0.825rem', display: "flex", justifyContent: "space-between" }}><span className="font-medium">ID:</span> {selectedItem.id}</span>
+                        <span style={{ marginBottom: '0.825rem', display: "flex", justifyContent: "space-between" }}><span className="font-medium">Type:</span> {selectedItem.type}</span>
+                        <span style={{ marginBottom: '0.825rem', display: "flex", justifyContent: "space-between" }}><span className="font-medium">Stack Height:</span> {selectedItem.stackHeight}</span>
+                        <span style={{ marginBottom: '0.825rem', display: "flex", justifyContent: "space-between" }}><span className="font-medium">Row:</span> {selectedItem.row}</span>
+                        <span style={{ marginBottom: '0.825rem', display: "flex", justifyContent: "space-between" }}><span className="font-medium">Column:</span> {selectedItem.column}</span>
                     </CardContent>
                 </Card>
             )}
@@ -221,22 +221,22 @@ const WarehouseScene = () => {
                 </div>
 
                 {/* {selectedItem && ( */}
-                    <div
-                        style={{
-                            width: selectedItem?"20vw": '0vw',
-                            padding: "16px",
-                            background: "var(--background)",
-                            borderLeft: "1px solid #ddd",
-                            overflowY: "auto",
-                            transform: selectedItem ? 'translateX(0)' : 'translateX(100%)',
-                            transition: 'transform 0.3s ease, width 0.3s ease',
-                        }}
-                    >
-                        <EditComponentForm
-                            item={selectedItem}
-                            onSave={handleSaveItem}
-                        />
-                    </div>
+                <div
+                    style={{
+                        width: selectedItem ? "20vw" : '0vw',
+                        padding: "16px",
+                        background: "var(--background)",
+                        borderLeft: "1px solid #ddd",
+                        overflowY: "auto",
+                        transform: selectedItem ? 'translateX(0)' : 'translateX(100%)',
+                        transition: 'transform 0.3s ease, width 0.3s ease',
+                    }}
+                >
+                    <EditComponentForm
+                        item={selectedItem}
+                        onSave={handleSaveItem}
+                    />
+                </div>
                 {/* )} */}
             </div>
         </>

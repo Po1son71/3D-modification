@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { TILE_SIZE } from "../../utils/gridUtils";
 
 // Component to load GLB model with proper scaling
-const BoxModel = ({ url, scale, onHeightCalculated}) => {
+const BoxModel = ({ url, scale, onHeightCalculated }) => {
     const gltf = useGLTF(url);
     const clonedScene = gltf.scene.clone();
 
@@ -38,7 +38,7 @@ const BoxModel = ({ url, scale, onHeightCalculated}) => {
     return <primitive object={clonedScene} scale={scale} />;
 };
 
-const Box = ({ position, stackHeight = 1 , onClick, item }) => {
+const Box = ({ position, stackHeight = 1, onClick, item }) => {
     const boxRef = useRef();
     const [actualBoxHeight, setActualBoxHeight] = useState(null);
 
@@ -51,7 +51,7 @@ const Box = ({ position, stackHeight = 1 , onClick, item }) => {
     return (
         <group
             ref={boxRef}
-            position={[position.x, (position.y && position.y > 0) ? position.y: 0, position.z]} // Start at floor level (y=0)
+            position={[position.x, (position.y && position.y > 0) ? position.y : 0, position.z]} // Start at floor level (y=0)
             onClick={(e) => {
                 e.stopPropagation();
                 onClick?.(item);

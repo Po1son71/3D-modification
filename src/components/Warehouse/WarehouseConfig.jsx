@@ -29,7 +29,7 @@ const WarehouseConfig = ({ onConfigure }) => {
             <h2 style={{ margin: '0 0 24px 0', fontSize: '24px', color: '#333' }}>
                 Configure Warehouse
             </h2>
-            
+
             <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: '20px' }}>
                     <label style={{
