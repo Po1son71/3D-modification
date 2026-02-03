@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect } from "react"
-import { OrbitControls } from "@react-three/drei"
+import { OrbitControls, OrthographicCamera, PerspectiveCamera } from "@react-three/drei"
 import { useThree } from "@react-three/fiber"
 import Rack from "./BlueprintComponents/Rack"
 
-export default function BlueprintWorld({ mode }) {
+export default function BlueprintWorld({ mode , data}) {
     const { camera } = useThree()
 
     const [components, setComponents] = useState([
@@ -13,6 +13,27 @@ export default function BlueprintWorld({ mode }) {
         { id: "fuel-1", x: 2.5, z: 4.8, label: "FUEL-1", type: "FUEL" },
     ])
 
+   useEffect(() => {
+    if (!data || !data.id) return;
+
+    setComponents((prev) => {
+        const exists = prev.some((c) => c.id === data.id);
+        if (exists) return prev;
+
+        return [
+            ...prev,
+            {
+                id: data.id,
+                x: Number(data.x),
+                z: Number(data.z),
+                label: data.label,
+                type: data.type,
+            },
+        ];
+    });
+}, [data]);
+
+    console.log(data, components)
     const [selectedId, setSelectedId] = useState(null)
     const draggingId = useRef(null)
 
@@ -30,7 +51,7 @@ export default function BlueprintWorld({ mode }) {
         } else {
             camera.position.set(6, 6, 6)
             camera.lookAt(0, 0, 0)
-            camera.zoom = 1
+            camera.zoom = 30
         }
         camera.updateProjectionMatrix()
     }, [mode])
@@ -49,12 +70,32 @@ export default function BlueprintWorld({ mode }) {
 
     return (
         <>
-            {/* Controls */}
+            {mode === "2D" ? (
+                <OrthographicCamera
+                    makeDefault
+                    position={[0, 10, 0]}
+                    rotation={[-Math.PI / 2, 0, 0]}
+                    zoom={50}
+                    near={0.1}
+                    far={1000}
+                />
+            ) : (
+                <PerspectiveCamera
+                    makeDefault
+                    position={[10, 25, 10]}
+                    // zoom={10}
+                    fov={100}
+                    near={0.1}
+                    far={1000}
+                />
+            )}
+
             <OrbitControls
                 enableRotate={mode === "3D"}
                 enablePan
                 enableZoom
                 screenSpacePanning={mode === "2D"}
+                target={[0, 0, 0]}
             />
 
             {mode === "3D" && (
@@ -65,7 +106,10 @@ export default function BlueprintWorld({ mode }) {
             )}
 
             {/* Grid */}
-            <gridHelper args={[100, mode === "2D" ? 100 : 20]} />
+            {
+                mode === "2D" &&
+                <gridHelper args={[100, mode === "2D" ? 100 : 20]} />
+            }
 
             <mesh
                 rotation={[-Math.PI / 2, 0, 0]}
@@ -93,8 +137,9 @@ export default function BlueprintWorld({ mode }) {
                     selected={selectedId === comp.id}
                     sizemap={SIZE_MAP}
                     onPointerDown={() => {
-                        setSelectedId(comp.id)
-                        draggingId.current = comp.id
+                        if(mode==="3D") return;
+                        setSelectedId(comp.id);
+                        draggingId.current = comp.id;
                     }}
                 />
             ))}

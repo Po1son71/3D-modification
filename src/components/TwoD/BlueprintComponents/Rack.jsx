@@ -1,10 +1,10 @@
-import { Edges, Html, RoundedBoxGeometry, Text, useGLTF } from "@react-three/drei"
-import { useEffect, useState, useMemo } from "react"
+import { Clone, Edges, Html, RoundedBoxGeometry, Text, useGLTF } from "@react-three/drei"
+import { useEffect, useState } from "react"
 
 const MODEL_MAP = {
-    RACK: "/models/rack.glb",
-    CRAC: "/models/box.glb",
-    FUEL: "/models/sack.glb",
+    RACK: "/models/box.glb",
+    CRAC: "/models/pallet.glb",
+    FUEL: "/models/box.glb",
 }
 
 export default function Rack({
@@ -50,39 +50,43 @@ export default function Rack({
             )}
 
             {viewMode === "3D" && gltf && (
-                <primitive
+                <Clone
                     object={gltf.scene}
-                    position={[0, 0, 0]}
+                    position={[x, 0, z]}
                     scale={1}
                 />
             )}
 
-            <Text
-                position={[0, size[1] + 0.01, 0]}
-                rotation={[-Math.PI / 2, 0, 0]}
-                fontSize={0.2}
-                color="black"
-                anchorX="center"
-                anchorY="middle"
-            >
-                {truncated}
-            </Text>
+            {viewMode === "2D" &&
+                <>
+                    <Text
+                        position={[0, size[1] + 0.01, 0]}
+                        rotation={[-Math.PI / 2, 0, 0]}
+                        fontSize={0.2}
+                        color="black"
+                        anchorX="center"
+                        anchorY="middle"
+                    >
+                        {truncated}
+                    </Text>
 
-            {hovered && truncated !== label && (
-                <Html
-                    position={[0, size[1] + 0.5, 0]}
-                    center
-                    style={{
-                        background: "white",
-                        padding: "2px 4px",
-                        borderRadius: "2px",
-                        fontSize: "12px",
-                        pointerEvents: "none",
-                    }}
-                >
-                    {label}
-                </Html>
-            )}
+                    {hovered && truncated !== label && (
+                        <Html
+                            position={[0, size[1] + 0.5, 0]}
+                            center
+                            style={{
+                                background: "white",
+                                padding: "2px 4px",
+                                borderRadius: "2px",
+                                fontSize: "12px",
+                                pointerEvents: "none",
+                            }}
+                        >
+                            {label}
+                        </Html>
+                    )}
+                </>
+            }
         </group>
     )
 }

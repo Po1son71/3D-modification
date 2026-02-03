@@ -5,11 +5,15 @@ import TopHeader from '@/components/UI/Topheader';
 
 export default function R3F() {
     const [viewMode, setViewMode] = useState("2D");
+    const [newComp, setNewComp] = useState({});
 
     const toggleViewMode = (mode) => {
         setViewMode(mode);
     }
 
+    const addNewComponents = (data) => {
+        setNewComp(data);
+    }
     return (
         <div style={{
             width: "100vw",
@@ -21,9 +25,9 @@ export default function R3F() {
             overflow: 'hidden',
             backgroundColor: '#f5f5f5'
         }}>
-            <TopHeader toggle={toggleViewMode} view={viewMode}/>
+            <TopHeader toggle={toggleViewMode} view={viewMode} add={addNewComponents}/>
             {/* {viewMode == "2D" ? */}
-                <TwoD  mode={viewMode}/> 
+                <TwoD  mode={viewMode} data={newComp}/> 
                 {/* :
                 <ThreeD />
             } */}

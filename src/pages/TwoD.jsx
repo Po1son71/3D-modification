@@ -2,7 +2,7 @@ import BlueprintWorld from '@/components/TwoD/BlueprintWorld'
 import { Canvas } from '@react-three/fiber'
 import React, { useEffect } from 'react'
 
-export const TwoD = ({ mode }) => {
+export const TwoD = ({ mode, data }) => {
     return (
         <div style={{
             width: "100vw",
@@ -13,15 +13,8 @@ export const TwoD = ({ mode }) => {
             overflow: 'hidden',
             backgroundColor: '#f5f5f5'
         }}>
-            <Canvas
-                orthographic
-                camera={{
-                    position: [0, 10, 0],
-                    zoom: 50,
-                    near: 0.1,
-                    far: 100,
-                }} >
-                <BlueprintWorld mode={mode}/>
+            <Canvas >
+                <BlueprintWorld mode={mode} data={data}/>
             </Canvas>
         </div>
     )
