@@ -72,34 +72,13 @@
     }
   ],
   "pathways": [
-    {
-      "id": "path-1",
-      "startRow": 10,
-      "startCol": 0,
-      "endRow": 0,
-      "endCol": 9,
-      "width": 0.8,
-      "color": "#FFD700",
-      "opacity": 0.5,
-      "type": "floor"
-    },
+  
     {
       "id": "path-2",
       "startRow": 0,
       "startCol": 5,
-      "endRow": 11,
+      "endRow": 9,
       "endCol": 5,
-      "width": 0.8,
-      "color": "#87CEEB",
-      "opacity": 0.5,
-      "type": "floor"
-    },
-    {
-      "id": "path-4",
-      "startRow": 0,
-      "startCol": 6,
-      "endRow": 31,
-      "endCol": 6,
       "width": 0.8,
       "color": "#87CEEB",
       "opacity": 0.5,
@@ -117,4 +96,4 @@
       "type": "floor"
     }
   ]
-}
+} 

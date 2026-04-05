@@ -7,8 +7,8 @@ import PropertiesPanel from "../components/UI/PropertiesPanel";
 function DataCenterPage() {
   return (
     <div style={{
-      width: "100vw",
-      height: "100vh",
+      width: "100%",
+      height: "100%",
       margin: 0,
       padding: 0,
       position: 'relative',
@@ -32,4 +32,5 @@ function DataCenterPage() {
 }
 
 export default DataCenterPage;
+
 

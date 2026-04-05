@@ -46,8 +46,8 @@ const WarehousePage = () => {
     }
     return (
         <div style={{
-            width: "100vw",
-            height: "100vh",
+            width: "100%",
+            height: "100%",
             margin: 0,
             padding: 0,
             position: 'relative',
@@ -57,7 +57,7 @@ const WarehousePage = () => {
             {/* Top Bar */}
             <div style={{
                 position: 'absolute',
-                top: '50px', // Start below App navigation
+                top: 0,
                 left: 0,
                 right: 0,
                 height: '60px',
@@ -178,7 +178,7 @@ const WarehousePage = () => {
                         // Display Mode: 3D Scene
                         <div style={{
                             position: 'absolute',
-                            top: '110px', // 50px nav + 60px warehouse bar
+                            top: '60px',
                             left: 0,
                             right: 0,
                             bottom: 0
@@ -189,7 +189,7 @@ const WarehousePage = () => {
                         // Edit Mode: Grid Editor
                         <div style={{
                             position: 'absolute',
-                            top: '110px', // 50px nav + 60px warehouse bar
+                            top: '60px',
                             left: 0,
                             right: 0,
                             bottom: 0,

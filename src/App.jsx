@@ -1,86 +1,84 @@
-import React from "react";
-import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
+import React, { useState } from "react";
 import DataCenterPage from "./pages/DataCenterPage";
 import WarehousePage from "./pages/WarehousePage";
-import R3F from "./pages/R3F";
+import FloorPlannerPage from "./pages/FloorPlannerPage";
 
-function Navigation() {
-  const location = useLocation();
-  
-  return (
-    <nav style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: '50px',
-      backgroundColor: '#1976d2',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '20px',
-      padding: '0 20px',
-      zIndex: 10000,
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-    }}>
-      <Link
-        to="/"
-        style={{
-          color: location.pathname === '/' ? '#ffffff' : '#e3f2fd',
-          textDecoration: 'none',
-          fontSize: '16px',
-          fontWeight: location.pathname === '/' ? 600 : 400,
-          padding: '8px 16px',
-          borderRadius: '4px',
-          backgroundColor: location.pathname === '/' ? 'rgba(255,255,255,0.2)' : 'transparent',
-          transition: 'all 0.2s'
-        }}
-      >
-        Data Center
-      </Link>
-      <Link
-        to="/warehouse"
-        style={{
-          color: location.pathname === '/warehouse' ? '#ffffff' : '#e3f2fd',
-          textDecoration: 'none',
-          fontSize: '16px',
-          fontWeight: location.pathname === '/warehouse' ? 600 : 400,
-          padding: '8px 16px',
-          borderRadius: '4px',
-          backgroundColor: location.pathname === '/warehouse' ? 'rgba(255,255,255,0.2)' : 'transparent',
-          transition: 'all 0.2s'
-        }}
-      >
-        Warehouse Management
-      </Link>
-      <Link
-        to="/twoD"
-        style={{
-          color: location.pathname === '/twoD' ? '#ffffff' : '#e3f2fd',
-          textDecoration: 'none',
-          fontSize: '16px',
-          fontWeight: location.pathname === '/twoD' ? 600 : 400,
-          padding: '8px 16px',
-          borderRadius: '4px',
-          backgroundColor: location.pathname === '/twoD' ? 'rgba(255,255,255,0.2)' : 'transparent',
-          transition: 'all 0.2s'
-        }}
-      >
-        R3F 2D to 3D
-      </Link>
-    </nav>
-  );
-}
+const NAV = [
+  { id: 'floorplanner', label: '🏠 Floor Planner' },
+  { id: 'warehouse',    label: '📦 Warehouse' },
+  { id: 'datacenter',  label: '🖥️ Data Center' },
+];
 
 function App() {
+  const [page, setPage] = useState('floorplanner');
+
   return (
-    <BrowserRouter>
-      <Navigation />
-      <Routes>
-        <Route path="/" element={<DataCenterPage />} />
-        <Route path="/warehouse" element={<WarehousePage />} />
-         <Route path="/twoD" element={<R3F />} />
-      </Routes>
-    </BrowserRouter>
+    <div style={{
+      width: '100vw',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      margin: 0,
+      padding: 0,
+    }}>
+      {/* ── Navigation bar ─────────────────────────────── */}
+      <nav style={{
+        height: 50,
+        background: '#1A1A2E',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 20px',
+        gap: 4,
+        flexShrink: 0,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        zIndex: 1000,
+      }}>
+        <span style={{
+          color: '#fff',
+          fontWeight: 800,
+          fontSize: 16,
+          marginRight: 20,
+          letterSpacing: '-0.3px',
+        }}>
+          3D Layout Editor
+        </span>
+
+        {NAV.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setPage(item.id)}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 5,
+              border: 'none',
+              background: page === item.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+              color: page === item.id ? '#fff' : 'rgba(255,255,255,0.55)',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: page === item.id ? 600 : 400,
+              transition: 'all 0.15s',
+              outline: page === item.id ? '1px solid rgba(255,255,255,0.2)' : 'none',
+            }}
+            onMouseEnter={(e) => {
+              if (page !== item.id) e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+            }}
+            onMouseLeave={(e) => {
+              if (page !== item.id) e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* ── Page content ───────────────────────────────── */}
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        {page === 'floorplanner' && <FloorPlannerPage />}
+        {page === 'warehouse'    && <WarehousePage />}
+        {page === 'datacenter'   && <DataCenterPage />}
+      </div>
+    </div>
   );
 }
 
