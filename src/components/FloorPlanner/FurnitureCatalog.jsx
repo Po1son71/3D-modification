@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import useFloorPlannerStore, { FURNITURE_CATALOG } from '../../store/floorPlannerStore';
 
 const CATEGORY_ICONS = {
+  'Data Center': '🖥️',
   'Living Room': '🛋️',
   'Bedroom':     '🛏️',
   'Kitchen':     '🍳',
@@ -12,7 +13,7 @@ const CATEGORY_ICONS = {
 
 const FurnitureCatalog = () => {
   const categories = Object.keys(FURNITURE_CATALOG);
-  const [openCat, setOpenCat] = useState('Living Room');
+  const [openCat, setOpenCat] = useState('Data Center');
 
   const { setActiveFurnitureDef, activeFurnitureDef, activeTool } = useFloorPlannerStore();
 
@@ -143,8 +144,13 @@ const FurnitureCatalog = () => {
                           }}>
                             {item.name}
                           </div>
-                          <div style={{ fontSize: 10, color: '#AAA', marginTop: 1 }}>
+                          <div style={{ fontSize: 10, color: '#AAA', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
                             {item.width}m × {item.depth}m
+                            {item.modelPath && (
+                              <span title="Has 3D model" style={{ fontSize: 9, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #C8E6C9', borderRadius: 3, padding: '0 3px', fontWeight: 700 }}>
+                                GLB
+                              </span>
+                            )}
                           </div>
                         </div>
                       </button>
