@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --input-type=module --experimental-vm-modules /dev/null)",
+      "Read(//c/Users/shres/.claude/projects/c--Users-shres-Downloads-3d-layout-editor/memory\" 2>/dev/**)",
+      "Read(//c/Users/shres/.claude/projects/c--Users-shres-Downloads-3d-layout-editor/**)",
+      "Bash(npx vite:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\shres\\.claude\\projects\\c--Users-shres-Downloads-3d-layout-editor\\memory"
+    ]
+  }
+}

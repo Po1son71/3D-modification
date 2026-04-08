@@ -1,9 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import useWarehouseStore from "../../store/warehouseStore";
 
-const GRID_SIZE = 50;
-const CELL_SIZE = 12; // pixels per cell
-
 const GridEditor = () => {
     const canvasRef = useRef(null);
     const [hoveredCell, setHoveredCell] = useState(null);
@@ -16,13 +13,49 @@ const GridEditor = () => {
 
     const {
         gridData,
+        rows,
+        columns,
         selectedTool,
         editMode,
         pathwayColor,
         pathwayWidth,
         pathwayOpacity,
-        updateGridCell
+        updateGridCell,
+        undoGridChange
     } = useWarehouseStore();
+
+    const GRID_ROWS = rows;
+    const GRID_COLS = columns;
+    const CELL_SIZE = 12; // pixels per cell
+
+    // Center the grid when dimensions change
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const cellSize = CELL_SIZE * scale;
+        const gridWidth = GRID_COLS * cellSize;
+        const gridHeight = GRID_ROWS * cellSize;
+
+        // Calculate offset to center the grid
+        const centerX = (canvas.width - gridWidth) / 2;
+        const centerY = (canvas.height - gridHeight) / 2;
+
+        setOffset({ x: centerX, y: centerY });
+    }, [GRID_ROWS, GRID_COLS, scale]);
+
+    // Handle Ctrl+Z for undo
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                undoGridChange();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [undoGridChange]);
 
     // Draw the grid
     useEffect(() => {
@@ -43,17 +76,42 @@ const GridEditor = () => {
         // Calculate visible grid area
         const cellSize = CELL_SIZE * scale;
         const startRow = Math.max(0, Math.floor(-offset.y / cellSize));
-        const endRow = Math.min(GRID_SIZE, Math.ceil((height - offset.y) / cellSize));
+        const endRow = Math.min(GRID_ROWS, Math.ceil((height - offset.y) / cellSize));
         const startCol = Math.max(0, Math.floor(-offset.x / cellSize));
-        const endCol = Math.min(GRID_SIZE, Math.ceil((width - offset.x) / cellSize));
+        const endCol = Math.min(GRID_COLS, Math.ceil((width - offset.x) / cellSize));
+
+        // Helper to get column label (A, B, ... Z, AA, AB...)
+        const getColumnLabel = (index) => {
+            let label = '';
+            let i = index;
+            while (i >= 0) {
+                label = String.fromCharCode(65 + (i % 26)) + label;
+                i = Math.floor(i / 26) - 1;
+            }
+            return label;
+        };
 
         // Draw cells
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
         for (let row = startRow; row < endRow; row++) {
+            // Draw Row Label
+            const y = row * cellSize + offset.y;
+            ctx.fillStyle = '#666';
+            ctx.fillText(`${row + 1}`, offset.x - 15, y + (cellSize / 2));
+
             for (let col = startCol; col < endCol; col++) {
                 const x = col * cellSize + offset.x;
-                const y = row * cellSize + offset.y;
 
-                const cell = gridData[row][col];
+                // Draw Column Label (only for first row iteration to avoid overhead, or just once per col loop)
+                if (row === startRow) {
+                    ctx.fillStyle = '#666';
+                    ctx.fillText(getColumnLabel(col), x + (cellSize / 2), offset.y - 15);
+                }
+
+                const cell = gridData[row]?.[col];
 
                 // Draw cell background
                 if (cell) {
@@ -106,7 +164,7 @@ const GridEditor = () => {
         // Draw grid boundaries (thicker)
         ctx.strokeStyle = '#666666';
         ctx.lineWidth = 2;
-        ctx.strokeRect(offset.x, offset.y, GRID_SIZE * cellSize, GRID_SIZE * cellSize);
+        ctx.strokeRect(offset.x, offset.y, GRID_COLS * cellSize, GRID_ROWS * cellSize);
 
         // selection rectangle
         if (selectionStart && selectionEnd) {
@@ -128,7 +186,7 @@ const GridEditor = () => {
             ctx.strokeRect(x, y, w, h);
             ctx.setLineDash([]);
         }
-    }, [gridData, hoveredCell, offset, scale, selectionStart, selectionEnd]);
+    }, [gridData, hoveredCell, offset, scale, selectionStart, selectionEnd, GRID_ROWS, GRID_COLS]);
 
     const getCellFromMouse = (e) => {
         const canvas = canvasRef.current;
@@ -143,7 +201,7 @@ const GridEditor = () => {
         const col = Math.floor((x - offset.x) / cellSize);
         const row = Math.floor((y - offset.y) / cellSize);
 
-        if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+        if (row >= 0 && row < GRID_ROWS && col >= 0 && col < GRID_COLS) {
             return { row, col };
         }
         return null;

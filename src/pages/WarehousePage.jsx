@@ -3,11 +3,13 @@ import WarehouseScene from "../components/Warehouse/WarehouseScene";
 import WarehouseConfig from "../components/Warehouse/WarehouseConfig";
 import GridEditor from "../components/Warehouse/GridEditor";
 import EditorToolbar from "../components/Warehouse/EditorToolbar";
+import GridConfigModal from "../components/Warehouse/GridConfigModal";
 import useWarehouseStore from "../store/warehouseStore";
 
 const WarehousePage = () => {
-    const { isConfigured, viewMode, setViewMode, editMode, setEditMode } = useWarehouseStore();
+    const { isConfigured, viewMode, setViewMode, editMode, setEditMode, setWarehouseConfig, applyGridToWarehouse, rows, columns } = useWarehouseStore();
     const [showConfig, setShowConfig] = useState(!isConfigured);
+    const [showGridConfig, setShowGridConfig] = useState(false);
 
     const handleConfigure = () => {
         setShowConfig(false);
@@ -19,16 +21,33 @@ const WarehousePage = () => {
     };
 
     const toggleViewMode = () => {
-        setViewMode(viewMode === 'display' ? 'edit' : 'display');
+        if (viewMode === 'display') {
+            // Switching to edit mode - show grid config
+            setShowGridConfig(true);
+        } else {
+            // Switching to display mode - apply grid data to warehouse
+            applyGridToWarehouse();
+            setViewMode('display');
+        }
     };
 
-    const  toggleEditMode =() =>{
-        setEditMode(editMode === "draw"?"selection" : "draw")
+    const handleGridConfigure = (gridRows, gridColumns) => {
+        setWarehouseConfig(gridRows, gridColumns);
+        setShowGridConfig(false);
+        setViewMode('edit');
+    };
+
+    const handleGridConfigCancel = () => {
+        setShowGridConfig(false);
+    };
+
+    const toggleEditMode = () => {
+        setEditMode(editMode === "draw" ? "selection" : "draw")
     }
     return (
         <div style={{
-            width: "100vw",
-            height: "100vh",
+            width: "100%",
+            height: "100%",
             margin: 0,
             padding: 0,
             position: 'relative',
@@ -38,7 +57,7 @@ const WarehousePage = () => {
             {/* Top Bar */}
             <div style={{
                 position: 'absolute',
-                top: '50px', // Start below App navigation
+                top: 0,
                 left: 0,
                 right: 0,
                 height: '60px',
@@ -89,23 +108,23 @@ const WarehousePage = () => {
                             {viewMode === 'display' ? '✏️ Edit Mode' : '👁️ Display Mode'}
                         </button>
                     )}
-                    
+
                     {viewMode === 'edit' &&
                         <button onClick={toggleEditMode}
-                        style={{
-                            padding: '8px 16px',
-                            fontSize: '14px',
-                            backgroundColor: viewMode === 'selection' ? '#2e7d32' : 'rgba(255,255,255,0.2)',
-                            color: '#ffffff',
-                            border: '1px solid rgba(255,255,255,0.3)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: 500,
-                            transition: 'background-color 0.2s'
-                        }}
-                    >
-                        {editMode === 'draw' ? '✏️ Draw Mode' : '✏️ Selection Mode'}
-                    </button>
+                            style={{
+                                padding: '8px 16px',
+                                fontSize: '14px',
+                                backgroundColor: viewMode === 'selection' ? '#2e7d32' : 'rgba(255,255,255,0.2)',
+                                color: '#ffffff',
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                transition: 'background-color 0.2s'
+                            }}
+                        >
+                            {editMode === 'draw' ? '✏️ Draw Mode' : '✏️ Selection Mode'}
+                        </button>
                     }
                     <button
                         onClick={handleReset}
@@ -142,6 +161,16 @@ const WarehousePage = () => {
                 </div>
             )}
 
+            {/* Grid Configuration Modal */}
+            {showGridConfig && (
+                <GridConfigModal
+                    onConfigure={handleGridConfigure}
+                    onCancel={handleGridConfigCancel}
+                    defaultRows={rows}
+                    defaultColumns={columns}
+                />
+            )}
+
             {/* Main Content Area */}
             {isConfigured && (
                 <>
@@ -149,7 +178,7 @@ const WarehousePage = () => {
                         // Display Mode: 3D Scene
                         <div style={{
                             position: 'absolute',
-                            top: '110px', // 50px nav + 60px warehouse bar
+                            top: '60px',
                             left: 0,
                             right: 0,
                             bottom: 0
@@ -160,7 +189,7 @@ const WarehousePage = () => {
                         // Edit Mode: Grid Editor
                         <div style={{
                             position: 'absolute',
-                            top: '110px', // 50px nav + 60px warehouse bar
+                            top: '60px',
                             left: 0,
                             right: 0,
                             bottom: 0,

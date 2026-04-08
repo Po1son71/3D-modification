@@ -145,3 +145,4 @@ Edit `CELL_SIZE` constant in:
 - The warehouse configuration is stored in Zustand store
 - All positions are calculated automatically from row/column indices
 
+
