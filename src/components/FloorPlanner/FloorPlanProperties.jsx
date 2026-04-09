@@ -158,9 +158,9 @@ const LockBtn = ({ locked, onToggle }) => (
 // ── Main panel ────────────────────────────────────────────────────────────────
 const FloorPlanProperties = () => {
   const {
-    rooms, furniture, doors,
+    rooms, furniture, doors, walls,
     selectedIds, lockedIds,
-    updateRoom, updateFurniture, updateDoor,
+    updateRoom, updateFurniture, updateDoor, updateWall,
     deleteSelected, rotateSelectedFurniture,
     toggleLock, lockSelected, unlockSelected,
     clearSelection,
@@ -172,8 +172,9 @@ const FloorPlanProperties = () => {
   const selectedRoom = rooms.find((r) => r.id === selectedId);
   const selectedFurn = furniture.find((f) => f.id === selectedId);
   const selectedDoor = doors.find((d) => d.id === selectedId);
-  const item = selectedRoom || selectedFurn || selectedDoor;
-  const kind = selectedRoom ? 'room' : selectedFurn ? 'furniture' : selectedDoor ? 'door' : null;
+  const selectedWall = walls && walls.find((w) => w.id === selectedId);
+  const item = selectedRoom || selectedFurn || selectedDoor || selectedWall;
+  const kind = selectedRoom ? 'room' : selectedFurn ? 'furniture' : selectedDoor ? 'door' : selectedWall ? 'wall' : null;
   const isLocked = selectedId ? lockedIds.includes(selectedId) : false;
 
   const numChange = (updater, key, e) => {
@@ -183,11 +184,12 @@ const FloorPlanProperties = () => {
 
   const multiRooms  = multiSelect ? selectedIds.filter((id) => rooms.find((r) => r.id === id)).length : 0;
   const multiFurn   = multiSelect ? selectedIds.filter((id) => furniture.find((f) => f.id === id)).length : 0;
+  const multiWalls  = multiSelect ? selectedIds.filter((id) => walls && walls.find((w) => w.id === id)).length : 0;
   const multiLocked = multiSelect ? selectedIds.filter((id) => lockedIds.includes(id)).length : 0;
   const allLocked   = multiSelect && multiLocked === selectedIds.length;
 
-  const kindLabel = kind === 'room' ? 'Room' : kind === 'furniture' ? 'Asset' : kind === 'door' ? 'Door' : '';
-  const kindAccent = kind === 'room' ? '#8B5CF6' : kind === 'furniture' ? C.accent : '#F59E0B';
+  const kindLabel  = kind === 'room' ? 'Room' : kind === 'furniture' ? 'Asset' : kind === 'door' ? 'Door' : kind === 'wall' ? 'Wall' : '';
+  const kindAccent = kind === 'room' ? '#8B5CF6' : kind === 'furniture' ? C.accent : kind === 'door' ? '#F59E0B' : kind === 'wall' ? '#64748B' : C.border;
 
   return (
     <div style={{
@@ -231,6 +233,7 @@ const FloorPlanProperties = () => {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3, display: 'flex', gap: 6 }}>
             {multiRooms > 0 && <span>{multiRooms} room{multiRooms > 1 ? 's' : ''}</span>}
             {multiFurn  > 0 && <span>{multiFurn} asset{multiFurn > 1 ? 's' : ''}</span>}
+            {multiWalls > 0 && <span>{multiWalls} wall{multiWalls > 1 ? 's' : ''}</span>}
             {multiLocked > 0 && <span style={{ color: C.warning }}>· {multiLocked} locked</span>}
           </div>
         )}
@@ -256,7 +259,7 @@ const FloorPlanProperties = () => {
               Nothing selected
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
-              Click a room, asset or door<br />to view its properties
+              Click a room, asset, wall<br />or door to view its properties
             </div>
           </div>
         )}
@@ -610,6 +613,81 @@ const FloorPlanProperties = () => {
             )}
 
             {/* ── DOOR ──────────────────────────────────────── */}
+            {/* ── FREESTANDING WALL ─────────────────────────── */}
+            {kind === 'wall' && !isLocked && (() => {
+              const len = Math.hypot(item.x2 - item.x1, item.y2 - item.y1);
+              const angle = Math.atan2(item.y2 - item.y1, item.x2 - item.x1) * 180 / Math.PI;
+              return (
+                <>
+                  <Section label="Dimensions" accent="#64748B">
+                    {/* Length info card */}
+                    <div style={{
+                      padding: '8px 10px', borderRadius: 6, marginBottom: 10,
+                      background: C.accentBg, border: `1px solid rgba(14,165,233,0.2)`,
+                    }}>
+                      <div style={{ fontSize: 10, color: C.accentDark, fontWeight: 700,
+                        textTransform: 'uppercase', letterSpacing: '0.5px' }}>Length</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: C.accentDark,
+                        fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+                        {len.toFixed(2)} m
+                      </div>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>
+                        Angle: {angle.toFixed(1)}°
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                      <Field label="X1 m">
+                        <input type="number" step="0.25" value={item.x1.toFixed(2)}
+                          onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateWall(selectedId, { x1: v }); }}
+                          style={inp} />
+                      </Field>
+                      <Field label="Y1 m">
+                        <input type="number" step="0.25" value={item.y1.toFixed(2)}
+                          onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateWall(selectedId, { y1: v }); }}
+                          style={inp} />
+                      </Field>
+                      <Field label="X2 m">
+                        <input type="number" step="0.25" value={item.x2.toFixed(2)}
+                          onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateWall(selectedId, { x2: v }); }}
+                          style={inp} />
+                      </Field>
+                      <Field label="Y2 m">
+                        <input type="number" step="0.25" value={item.y2.toFixed(2)}
+                          onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateWall(selectedId, { y2: v }); }}
+                          style={inp} />
+                      </Field>
+                    </div>
+                  </Section>
+
+                  <Section label="Appearance" accent="#64748B">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                      <Field label="Thickness m">
+                        <input type="number" step="0.05" min="0.05" max="0.6"
+                          value={(item.thickness || 0.15).toFixed(2)}
+                          onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateWall(selectedId, { thickness: v }); }}
+                          style={inp} />
+                      </Field>
+                      <Field label="Height m">
+                        <input type="number" step="0.1" min="0.5" max="6.0"
+                          value={(item.height || 1.8).toFixed(1)}
+                          onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateWall(selectedId, { height: v }); }}
+                          style={inp} />
+                      </Field>
+                    </div>
+                    <Field label="Color">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input type="color" value={item.color || '#444444'}
+                          onChange={(e) => updateWall(selectedId, { color: e.target.value })}
+                          style={colorInp} />
+                        <span style={{ fontSize: 11, color: C.textSub }}>{item.color || '#444444'}</span>
+                      </div>
+                    </Field>
+                  </Section>
+                </>
+              );
+            })()}
+
             {kind === 'door' && !isLocked && (
               <>
                 <div style={{
@@ -619,8 +697,8 @@ const FloorPlanProperties = () => {
                   fontSize: 11, color: '#92400E',
                   display: 'flex', gap: 8,
                 }}>
-                  <span>Wall: <strong>{item.wall}</strong></span>
-                  <span>·</span>
+                  {item.wall && <><span>Wall: <strong>{item.wall}</strong></span><span>·</span></>}
+                  {item.wallId && <><span>Freestanding wall</span><span>·</span></>}
                   <span>Offset: <strong>{item.offset.toFixed(2)} m</strong></span>
                 </div>
 

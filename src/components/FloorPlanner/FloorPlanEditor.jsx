@@ -96,6 +96,103 @@ function findNearestWall(wx, wy, rooms, maxDist = 1.2) {
   return best;
 }
 
+// ── Wall endpoint snap ────────────────────────────────────────────────────────
+// Priority: 1) room corner  2) room wall face (projected)  3) other wall endpoint
+// Returns { x, y, snapped, kind } — kind is 'corner'|'wall'|'endpoint'|null
+const SNAP_DIST = 0.4; // metres
+
+function snapWallPoint(wx, wy, rooms, walls, excludeWallId) {
+  let best = null, bestDist = Infinity;
+
+  // 1. Room corners
+  for (const r of rooms) {
+    for (const [cx, cy] of [
+      [r.x, r.y], [r.x + r.width, r.y],
+      [r.x, r.y + r.height], [r.x + r.width, r.y + r.height],
+    ]) {
+      const d = Math.hypot(wx - cx, wy - cy);
+      if (d < bestDist && d < SNAP_DIST) {
+        bestDist = d; best = { x: cx, y: cy, kind: 'corner' };
+      }
+    }
+  }
+
+  // 2. Room wall face midpoints + projected closest point on wall line
+  for (const r of rooms) {
+    for (const wall of ['north', 'south', 'east', 'west']) {
+      const { start, end } = getWallEndpoints(r, wall);
+      const dx = end.x - start.x, dy = end.y - start.y;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq < 1e-10) continue;
+      const t = Math.max(0, Math.min(1, ((wx - start.x) * dx + (wy - start.y) * dy) / lenSq));
+      const px = start.x + t * dx, py = start.y + t * dy;
+      const d = Math.hypot(wx - px, wy - py);
+      if (d < bestDist && d < SNAP_DIST) {
+        bestDist = d; best = { x: px, y: py, kind: 'wall' };
+      }
+    }
+  }
+
+  // 3. Other wall endpoints (highest priority over face — checked before face)
+  if (walls) {
+    for (const w of walls) {
+      if (w.id === excludeWallId) continue;
+      for (const [ex, ey] of [[w.x1, w.y1], [w.x2, w.y2]]) {
+        const d = Math.hypot(wx - ex, wy - ey);
+        if (d < bestDist && d < SNAP_DIST) {
+          bestDist = d; best = { x: ex, y: ey, kind: 'endpoint' };
+        }
+      }
+    }
+  }
+
+  // 4. Other wall face — projected closest point on freestanding wall body
+  if (walls) {
+    for (const w of walls) {
+      if (w.id === excludeWallId) continue;
+      const fdx = w.x2 - w.x1, fdy = w.y2 - w.y1;
+      const lenSq = fdx * fdx + fdy * fdy;
+      if (lenSq < 1e-10) continue;
+      const t = Math.max(0, Math.min(1, ((wx - w.x1) * fdx + (wy - w.y1) * fdy) / lenSq));
+      const px = w.x1 + t * fdx, py = w.y1 + t * fdy;
+      const d = Math.hypot(wx - px, wy - py);
+      if (d < bestDist && d < SNAP_DIST) {
+        bestDist = d; best = { x: px, y: py, kind: 'wall' };
+      }
+    }
+  }
+
+  return best ? { ...best, snapped: true } : { x: snapVal(wx), y: snapVal(wy), snapped: false, kind: null };
+}
+
+// ── Freestanding wall helpers ─────────────────────────────────────────────────
+
+// Distance from point (px,py) to segment (ax,ay)→(bx,by), returns { dist, t }
+function ptSegDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 1e-10) return { dist: Math.hypot(px - ax, py - ay), t: 0 };
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return { dist: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)), t };
+}
+
+// Find the nearest freestanding wall within maxDist, returns { wall, t, offset }
+function findNearestFWWall(wx, wy, walls, maxDist = 1.2) {
+  let best = null, bestDist = Infinity;
+  for (const w of walls) {
+    const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+    if (len < 0.01) continue;
+    const { dist, t } = ptSegDist(wx, wy, w.x1, w.y1, w.x2, w.y2);
+    if (dist < bestDist && dist < maxDist) {
+      bestDist = dist;
+      const rawOffset = t * len;
+      const clampedOffset = snapVal(Math.max(0, Math.min(len - DEFAULT_DOOR_WIDTH, rawOffset - DEFAULT_DOOR_WIDTH / 2)));
+      best = { wall: w, t, offset: clampedOffset, len };
+    }
+  }
+  return best;
+}
+
 // ── Right-click context menu ──────────────────────────────────────────────────
 const MenuItem = ({ onClick, danger, disabled, children }) => (
   <div
@@ -218,6 +315,8 @@ const FloorPlanEditor = () => {
   const scaleRef       = useRef(scale);
   const offsetRef      = useRef(offset);
   const drawRef        = useRef(null);    // room draw: { startX, startY, curX, curY }
+  const wallDrawRef    = useRef(null);    // wall draw: { x1, y1, x2, y2 }
+  const wallSnapRef    = useRef(null);    // current snap point { x, y, kind } for draw indicator
   const dragRef        = useRef(null);    // active drag state
   const panRef         = useRef(null);    // pan state
   const hoverRef       = useRef(null);    // furniture hover position
@@ -225,6 +324,7 @@ const FloorPlanEditor = () => {
   const boxSelectRef    = useRef(null);    // box-select drag: { startSX, startSY, curSX, curSY, additive }
   const hoverHandleRef  = useRef(null);    // handle corner/edge key the mouse is hovering ('nw', 'n', …)
   const hoverGroupRef   = useRef(false);   // true when mouse is over empty area inside a group rect
+  const hoverWallEpRef  = useRef(false);   // true when hovering over a wall endpoint
   const [renderTick, forceRender] = useState(0);
 
   scaleRef.current  = scale;
@@ -236,7 +336,7 @@ const FloorPlanEditor = () => {
   }, [scale, offset.x, offset.y]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
-    rooms, furniture, doors, groups,
+    rooms, furniture, doors, walls, groups,
     selectedIds, lockedIds,
     activeTool, activeFurnitureDef,
     showHeatmap,
@@ -244,6 +344,7 @@ const FloorPlanEditor = () => {
     addRoom, updateRoom,
     addFurniture, updateFurniture,
     addDoor, updateDoor,
+    addWall, updateWall,
     selectOne, selectAdd, setSelectedIds, clearSelection,
     deleteSelected,
     setActiveTool,
@@ -384,6 +485,13 @@ const FloorPlanEditor = () => {
       const room = rooms.find((r) => r.id === door.roomId);
       if (room) drawDoorSymbol(ctx, door, room, selectedIds.includes(door.id));
     });
+    // Freestanding walls
+    walls.forEach((w) => drawFWWall(ctx, w, selectedIds.includes(w.id)));
+    doors.forEach((door) => {
+      if (!door.wallId) return;
+      const fw = walls.find((w) => w.id === door.wallId);
+      if (fw) drawFWDoor(ctx, door, fw, selectedIds.includes(door.id));
+    });
     furniture.forEach((item) => drawFurniture(ctx, item, selectedIds.includes(item.id)));
     // Group outlines drawn LAST so they appear on top of rooms and furniture
     groups.forEach((group) => drawGroupOutline(ctx, group));
@@ -443,13 +551,68 @@ const FloorPlanEditor = () => {
       ctx.setLineDash([5, 4]); ctx.strokeRect(sp.x, sp.y, sw, sh); ctx.setLineDash([]);
     }
 
-    // Door placement preview
+    // Door placement preview (room wall)
     const dh = doorHoverRef.current;
-    if (activeTool === 'door' && dh) {
+    if (activeTool === 'door' && dh && dh.room) {
       const previewDoor = { id: '__preview__', width: DEFAULT_DOOR_WIDTH, openAngle: 90, hingeSide: 'left', swingIn: true, ...dh };
       ctx.globalAlpha = 0.6;
       drawDoorSymbol(ctx, previewDoor, dh.room, false);
       ctx.globalAlpha = 1;
+    }
+    // Door placement preview (freestanding wall)
+    if (activeTool === 'door' && dh && dh.fwWall) {
+      ctx.globalAlpha = 0.6;
+      drawFWDoor(ctx, { id: '__preview__', width: DEFAULT_DOOR_WIDTH, openAngle: 90, hingeSide: 'left', offset: dh.offset }, dh.fwWall, false);
+      ctx.globalAlpha = 1;
+    }
+
+    // Freestanding wall draw preview
+    const wd = wallDrawRef.current;
+    if (wd) {
+      const sp1 = toScreen(wd.x1, wd.y1), sp2 = toScreen(wd.x2, wd.y2);
+      const thickness = 0.05 * PPM * scale;
+      ctx.strokeStyle = '#1565C0';
+      ctx.lineWidth   = Math.max(2, thickness);
+      ctx.lineCap     = 'square';
+      ctx.setLineDash([8, 5]);
+      ctx.beginPath(); ctx.moveTo(sp1.x, sp1.y); ctx.lineTo(sp2.x, sp2.y); ctx.stroke();
+      ctx.setLineDash([]);
+      // Start + end endpoint dots
+      for (const pt of [sp1, sp2]) {
+        ctx.fillStyle = '#1565C0';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2); ctx.fill();
+      }
+      // Length label
+      const len = Math.hypot(wd.x2 - wd.x1, wd.y2 - wd.y1);
+      if (len > 0.2) {
+        const mx = (sp1.x + sp2.x) / 2, my = (sp1.y + sp2.y) / 2;
+        ctx.fillStyle = '#1565C0';
+        ctx.font = `bold ${Math.max(11, 12 * scale)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillText(`${len.toFixed(2)} m`, mx, my - 6);
+      }
+    }
+
+    // Wall snap indicator — orange ring + crosshair at snap point
+    const ws = wallSnapRef.current;
+    if (ws && (activeTool === 'wall' || dragRef.current?.type === 'wall-ep' || dragRef.current?.type === 'wall')) {
+      const sp = toScreen(ws.x, ws.y);
+      const snapColor = ws.kind === 'corner' ? '#FF6D00' : ws.kind === 'endpoint' ? '#AA00FF' : '#00897B';
+      const r = 8;
+      ctx.strokeStyle = snapColor;
+      ctx.lineWidth   = 2;
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2); ctx.stroke();
+      // Crosshair
+      ctx.beginPath();
+      ctx.moveTo(sp.x - r * 1.6, sp.y); ctx.lineTo(sp.x + r * 1.6, sp.y);
+      ctx.moveTo(sp.x, sp.y - r * 1.6); ctx.lineTo(sp.x, sp.y + r * 1.6);
+      ctx.stroke();
+      // Label
+      const label = ws.kind === 'corner' ? 'Corner' : ws.kind === 'endpoint' ? 'Endpoint' : 'Wall';
+      ctx.fillStyle = snapColor;
+      ctx.font = `bold ${Math.max(9, 10 * scale)}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(label, sp.x, sp.y - r - 3);
     }
 
     // Box-select rectangle
@@ -468,7 +631,7 @@ const FloorPlanEditor = () => {
       ctx.setLineDash([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rooms, furniture, doors, groups, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, renderTick]);
+  }, [rooms, furniture, doors, walls, groups, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, renderTick]);
 
   // ── Group outline ─────────────────────────────────────────────────────────
   const drawGroupOutline = (ctx, group) => {
@@ -892,6 +1055,113 @@ const FloorPlanEditor = () => {
     }
   };
 
+  // ── Draw freestanding wall (with door gaps) ──────────────────────────────────
+  const drawFWWall = (ctx, w, isSel) => {
+    const sc = scaleRef.current;
+    const sp1 = toScreen(w.x1, w.y1), sp2 = toScreen(w.x2, w.y2);
+    const thickness = (w.thickness || 0.15) * PPM * sc;
+    const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+    const wallColor = isSel ? '#1565C0' : (w.color || '#444444');
+    const isLocked  = lockedIds.includes(w.id);
+
+    const wallDoors = doors.filter((d) => d.wallId === w.id).sort((a, b) => a.offset - b.offset);
+
+    ctx.strokeStyle = wallColor;
+    ctx.lineWidth   = thickness;
+    ctx.lineCap     = 'square';
+
+    // Draw segments with gaps for doors
+    const dx = sp2.x - sp1.x, dy = sp2.y - sp1.y;
+    let prevT = 0;
+    for (const d of wallDoors) {
+      const t0 = Math.max(0, d.offset / len);
+      const t1 = Math.min(1, (d.offset + d.width) / len);
+      if (t0 > prevT + 0.001) {
+        ctx.beginPath();
+        ctx.moveTo(sp1.x + dx * prevT, sp1.y + dy * prevT);
+        ctx.lineTo(sp1.x + dx * t0,    sp1.y + dy * t0);
+        ctx.stroke();
+      }
+      prevT = t1;
+    }
+    if (prevT < 1 - 0.001) {
+      ctx.beginPath();
+      ctx.moveTo(sp1.x + dx * prevT, sp1.y + dy * prevT);
+      ctx.lineTo(sp2.x, sp2.y);
+      ctx.stroke();
+    }
+
+    // Selection: endpoint handles
+    if (isSel) {
+      const r = Math.max(6, 8 * sc);
+      [sp1, sp2].forEach((pt) => {
+        // Outer ring
+        ctx.fillStyle = '#1565C0';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r + 2, 0, Math.PI * 2); ctx.fill();
+        // Inner white
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#1565C0'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2); ctx.stroke();
+      });
+      // Length label mid-wall
+      const mx = (sp1.x + sp2.x) / 2, my = (sp1.y + sp2.y) / 2;
+      ctx.fillStyle = '#1565C0';
+      ctx.font = `${Math.max(9, 10 * sc)}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`${len.toFixed(2)} m`, mx, my - thickness / 2 - 4);
+    }
+
+    if (isLocked) drawLockBadge(ctx, (sp1.x + sp2.x) / 2, (sp1.y + sp2.y) / 2 - 8 * sc, sc);
+  };
+
+  // ── Draw a door on a freestanding wall ───────────────────────────────────────
+  const drawFWDoor = (ctx, door, fw, isSel) => {
+    const sc  = scaleRef.current;
+    const len = Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1);
+    if (len < 0.01) return;
+    const dirX = (fw.x2 - fw.x1) / len, dirY = (fw.y2 - fw.y1) / len;
+    // Perpendicular (inward = left side of wall direction)
+    const perpX = -dirY, perpY = dirX;
+
+    const hingeW = { x: fw.x1 + dirX * door.offset, y: fw.y1 + dirY * door.offset };
+    const hinge  = toScreen(hingeW.x, hingeW.y);
+    const radius = door.width * PPM * sc;
+    const θ      = (door.openAngle ?? 90) * Math.PI / 180;
+
+    // Panel start direction = along wall
+    const panelColor = isSel ? '#1565C0' : '#7B5B3A';
+    const arcColor   = isSel ? 'rgba(21,101,192,0.35)' : 'rgba(123,91,58,0.3)';
+
+    const startAngle   = Math.atan2(dirY, dirX);
+    const endAngle     = startAngle + θ; // swing toward perpendicular
+
+    ctx.strokeStyle = arcColor;
+    ctx.lineWidth   = Math.max(0.8, 1 * sc);
+    ctx.setLineDash([3 * sc, 3 * sc]);
+    ctx.beginPath();
+    ctx.arc(hinge.x, hinge.y, radius, startAngle, endAngle, false);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Closed panel line
+    const closedTipS = { x: hinge.x + radius * Math.cos(startAngle), y: hinge.y + radius * Math.sin(startAngle) };
+    ctx.strokeStyle = arcColor; ctx.lineWidth = Math.max(0.8, 1 * sc);
+    ctx.beginPath(); ctx.moveTo(hinge.x, hinge.y); ctx.lineTo(closedTipS.x, closedTipS.y); ctx.stroke();
+
+    // Open panel
+    const openTipS = { x: hinge.x + radius * Math.cos(endAngle), y: hinge.y + radius * Math.sin(endAngle) };
+    ctx.strokeStyle = panelColor; ctx.lineWidth = Math.max(2, 2.5 * sc); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(hinge.x, hinge.y); ctx.lineTo(openTipS.x, openTipS.y); ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    ctx.fillStyle = panelColor;
+    ctx.beginPath(); ctx.arc(hinge.x, hinge.y, Math.max(3, 4 * sc), 0, Math.PI * 2); ctx.fill();
+
+    // Suppress unused warning
+    void perpX; void perpY;
+  };
+
   // ── Draw furniture ──────────────────────────────────────────────────────────
   const drawFurniture = (ctx, item, isSel) => {
     const sc  = scaleRef.current;
@@ -1062,14 +1332,35 @@ const FloorPlanEditor = () => {
   const checkDoorHit = (wx, wy) => {
     const tol = 0.25;
     for (const door of doors) {
-      const room = rooms.find((r) => r.id === door.roomId);
-      if (!room) continue;
-      const { hingePoint, panelDir, swingDir } = getDoorInfo(door, room);
-      if (Math.hypot(wx - hingePoint.x, wy - hingePoint.y) < tol) return door;
-      const θ = door.openAngle * Math.PI / 180;
-      const midX = hingePoint.x + (door.width / 2) * (Math.cos(θ) * panelDir.x + Math.sin(θ) * swingDir.x);
-      const midY = hingePoint.y + (door.width / 2) * (Math.cos(θ) * panelDir.y + Math.sin(θ) * swingDir.y);
-      if (Math.hypot(wx - midX, wy - midY) < tol) return door;
+      // Room door
+      if (door.roomId) {
+        const room = rooms.find((r) => r.id === door.roomId);
+        if (!room) continue;
+        const { hingePoint, panelDir, swingDir } = getDoorInfo(door, room);
+        if (Math.hypot(wx - hingePoint.x, wy - hingePoint.y) < tol) return door;
+        const θ = door.openAngle * Math.PI / 180;
+        const midX = hingePoint.x + (door.width / 2) * (Math.cos(θ) * panelDir.x + Math.sin(θ) * swingDir.x);
+        const midY = hingePoint.y + (door.width / 2) * (Math.cos(θ) * panelDir.y + Math.sin(θ) * swingDir.y);
+        if (Math.hypot(wx - midX, wy - midY) < tol) return door;
+      }
+      // Freestanding wall door
+      if (door.wallId) {
+        const fw = walls.find((w) => w.id === door.wallId);
+        if (!fw) continue;
+        const len = Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1);
+        if (len < 0.01) continue;
+        const dirX = (fw.x2 - fw.x1) / len, dirY = (fw.y2 - fw.y1) / len;
+        const hingeX = fw.x1 + dirX * door.offset;
+        const hingeY = fw.y1 + dirY * door.offset;
+        if (Math.hypot(wx - hingeX, wy - hingeY) < tol) return door;
+        // Mid-panel point
+        const θ = (door.openAngle ?? 90) * Math.PI / 180;
+        const startAngle = Math.atan2(dirY, dirX);
+        const endAngle   = startAngle + θ;
+        const midX = hingeX + (door.width / 2) * Math.cos(endAngle);
+        const midY = hingeY + (door.width / 2) * Math.sin(endAngle);
+        if (Math.hypot(wx - midX, wy - midY) < tol) return door;
+      }
     }
     return null;
   };
@@ -1147,14 +1438,26 @@ const FloorPlanEditor = () => {
       if (doorHit) {
         if (e.shiftKey) { selectAdd(doorHit.id); return; }
         selectOne(doorHit.id);
-        const room = rooms.find((r) => r.id === doorHit.roomId);
         useFloorPlannerStore.getState()._pushHistory();
-        dragRef.current = {
-          type: 'door', id: doorHit.id, wall: doorHit.wall,
-          roomWidth: room.width, roomHeight: room.height,
-          doorWidth: doorHit.width,
-          startWX: wx, startWY: wy, origOffset: doorHit.offset,
-        };
+        if (doorHit.wallId) {
+          // Freestanding wall door — drag slides along the wall
+          const fw = walls.find((w) => w.id === doorHit.wallId);
+          const fwLen = fw ? Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1) : 0;
+          dragRef.current = {
+            type: 'fwDoor', id: doorHit.id, wallId: doorHit.wallId,
+            wallLen: fwLen, doorWidth: doorHit.width,
+            fw,
+            startWX: wx, startWY: wy, origOffset: doorHit.offset,
+          };
+        } else {
+          const room = rooms.find((r) => r.id === doorHit.roomId);
+          dragRef.current = {
+            type: 'door', id: doorHit.id, wall: doorHit.wall,
+            roomWidth: room.width, roomHeight: room.height,
+            doorWidth: doorHit.width,
+            startWX: wx, startWY: wy, origOffset: doorHit.offset,
+          };
+        }
         return;
       }
 
@@ -1186,6 +1489,43 @@ const FloorPlanEditor = () => {
           dragRef.current = { type: 'multi', origins, startWX: wx, startWY: wy };
         }
         return;
+      }
+
+      // ── Priority 1b: Freestanding wall hit ───────────────────────────────
+      {
+        const ENDPOINT_TOL = 0.25; // metres — snap radius for endpoint handles
+        let wallHit = null;
+        for (let i = walls.length - 1; i >= 0; i--) {
+          const w = walls[i];
+          const { dist } = ptSegDist(wx, wy, w.x1, w.y1, w.x2, w.y2);
+          const tol = (w.thickness || 0.15) / 2 + 0.18;
+          if (dist <= tol) { wallHit = w; break; }
+        }
+        if (wallHit) {
+          if (e.shiftKey) { selectAdd(wallHit.id); return; }
+          selectOne(wallHit.id);
+          if (!lockedIds.includes(wallHit.id)) {
+            useFloorPlannerStore.getState()._pushHistory();
+            const distP1 = Math.hypot(wx - wallHit.x1, wy - wallHit.y1);
+            const distP2 = Math.hypot(wx - wallHit.x2, wy - wallHit.y2);
+            if (distP1 <= ENDPOINT_TOL) {
+              // Drag endpoint 1 — reshapes wall
+              dragRef.current = { type: 'wall-ep', id: wallHit.id, endpoint: 1,
+                origX1: wallHit.x1, origY1: wallHit.y1, origX2: wallHit.x2, origY2: wallHit.y2 };
+            } else if (distP2 <= ENDPOINT_TOL) {
+              // Drag endpoint 2 — reshapes wall
+              dragRef.current = { type: 'wall-ep', id: wallHit.id, endpoint: 2,
+                origX1: wallHit.x1, origY1: wallHit.y1, origX2: wallHit.x2, origY2: wallHit.y2 };
+            } else {
+              // Drag body — moves whole wall
+              dragRef.current = { type: 'wall', id: wallHit.id,
+                origX1: wallHit.x1, origY1: wallHit.y1,
+                origX2: wallHit.x2, origY2: wallHit.y2,
+                startWX: wx, startWY: wy };
+            }
+          }
+          return;
+        }
       }
 
       // ── Priority 2: Group background hit ──────────────────────────────────
@@ -1260,6 +1600,12 @@ const FloorPlanEditor = () => {
       if (!e.shiftKey) clearSelection();
       boxSelectRef.current = { startSX: sx, startSY: sy, curSX: sx, curSY: sy, additive: e.shiftKey };
 
+    } else if (activeTool === 'wall') {
+      const snap = snapWallPoint(wx, wy, rooms, walls, null);
+      wallDrawRef.current = { x1: snap.x, y1: snap.y, x2: snap.x, y2: snap.y };
+      wallSnapRef.current = snap;
+      forceRender((n) => n + 1);
+
     } else if (activeTool === 'room') {
       const { x, y } = snapPt(wx, wy);
       drawRef.current = { startX: x, startY: y, curX: x, curY: y };
@@ -1281,9 +1627,14 @@ const FloorPlanEditor = () => {
       setActiveTool('select');
 
     } else if (activeTool === 'door') {
-      const hit = findNearestWall(wx, wy, rooms);
-      if (hit) {
-        addDoor({ roomId: hit.room.id, wall: hit.wall, offset: hit.offset });
+      const roomHit = findNearestWall(wx, wy, rooms);
+      if (roomHit) {
+        addDoor({ roomId: roomHit.room.id, wall: roomHit.wall, offset: roomHit.offset });
+      } else {
+        const fwHit = findNearestFWWall(wx, wy, walls);
+        if (fwHit) {
+          addDoor({ wallId: fwHit.wall.id, offset: fwHit.offset, width: DEFAULT_DOOR_WIDTH, openAngle: 90, hingeSide: 'left', swingIn: true });
+        }
       }
     }
   };
@@ -1302,7 +1653,49 @@ const FloorPlanEditor = () => {
       const d = dragRef.current;
       const dx = wx - d.startWX, dy = wy - d.startWY;
 
-      if (d.type === 'multi') {
+      if (d.type === 'wall') {
+        // Candidate positions after raw delta
+        const c1x = d.origX1 + dx, c1y = d.origY1 + dy;
+        const c2x = d.origX2 + dx, c2y = d.origY2 + dy;
+        // Try snapping each endpoint; pick the one with the tightest snap
+        const s1 = snapWallPoint(c1x, c1y, rooms, walls, d.id);
+        const s2 = snapWallPoint(c2x, c2y, rooms, walls, d.id);
+        const d1 = s1.snapped ? Math.hypot(s1.x - c1x, s1.y - c1y) : Infinity;
+        const d2 = s2.snapped ? Math.hypot(s2.x - c2x, s2.y - c2y) : Infinity;
+        let nx1, ny1, nx2, ny2;
+        if (d1 <= d2 && s1.snapped) {
+          // Snap ep1; translate ep2 by same delta
+          const sdx = s1.x - c1x, sdy = s1.y - c1y;
+          nx1 = s1.x; ny1 = s1.y;
+          nx2 = snapVal(c2x + sdx); ny2 = snapVal(c2y + sdy);
+        } else if (d2 < d1 && s2.snapped) {
+          // Snap ep2; translate ep1 by same delta
+          const sdx = s2.x - c2x, sdy = s2.y - c2y;
+          nx2 = s2.x; ny2 = s2.y;
+          nx1 = snapVal(c1x + sdx); ny1 = snapVal(c1y + sdy);
+        } else {
+          nx1 = snapVal(c1x); ny1 = snapVal(c1y);
+          nx2 = snapVal(c2x); ny2 = snapVal(c2y);
+        }
+        // Update snap indicator for body drag
+        const snapped = d1 <= d2 ? s1 : s2;
+        wallSnapRef.current = snapped.snapped ? snapped : null;
+        updateWall(d.id, { x1: nx1, y1: ny1, x2: nx2, y2: ny2 });
+      } else if (d.type === 'wall-ep') {
+        const snap = snapWallPoint(wx, wy, rooms, walls, d.id);
+        let nx = snap.x, ny = snap.y;
+        if (e.shiftKey) {
+          const fx = d.endpoint === 1 ? d.origX2 : d.origX1;
+          const fy = d.endpoint === 1 ? d.origY2 : d.origY1;
+          const edx = nx - fx, edy = ny - fy;
+          const adx = Math.abs(edx), ady = Math.abs(edy);
+          if (adx > ady * 2)      { ny = fy; }
+          else if (ady > adx * 2) { nx = fx; }
+          else { const d2 = snapVal(Math.min(adx, ady)); nx = fx + (edx >= 0 ? d2 : -d2); ny = fy + (edy >= 0 ? d2 : -d2); }
+        }
+        if (d.endpoint === 1) updateWall(d.id, { x1: nx, y1: ny });
+        else                   updateWall(d.id, { x2: nx, y2: ny });
+      } else if (d.type === 'multi') {
         for (const [id, orig] of Object.entries(d.origins)) {
           const nx = snapVal(orig.x + dx), ny = snapVal(orig.y + dy);
           if (orig.kind === 'furniture') updateFurniture(id, { x: nx, y: ny });
@@ -1315,6 +1708,17 @@ const FloorPlanEditor = () => {
         const wallLen      = isHorizontal ? d.roomWidth : d.roomHeight;
         const raw          = d.origOffset + (isHorizontal ? dx : dy);
         const clamped      = Math.max(0, Math.min(wallLen - d.doorWidth, snapVal(raw)));
+        updateDoor(d.id, { offset: clamped });
+      } else if (d.type === 'fwDoor') {
+        // Project mouse delta onto the wall direction to get offset change
+        const fw = walls.find((w) => w.id === d.wallId) || d.fw;
+        if (!fw) return;
+        const fwLen = Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1);
+        if (fwLen < 0.01) return;
+        const dirX = (fw.x2 - fw.x1) / fwLen, dirY = (fw.y2 - fw.y1) / fwLen;
+        const proj  = dx * dirX + dy * dirY;
+        const raw   = d.origOffset + proj;
+        const clamped = Math.max(0, Math.min(fwLen - d.doorWidth, snapVal(raw)));
         updateDoor(d.id, { offset: clamped });
       }
       return;
@@ -1332,6 +1736,33 @@ const FloorPlanEditor = () => {
       forceRender((n) => n + 1);
     }
 
+    if (wallDrawRef.current) {
+      // First try room/wall snap, then apply shift constraint on top
+      const snap = snapWallPoint(wx, wy, rooms, walls, null);
+      let { x, y } = snap;
+      if (e.shiftKey) {
+        const dx = x - wallDrawRef.current.x1;
+        const dy = y - wallDrawRef.current.y1;
+        const adx = Math.abs(dx), ady = Math.abs(dy);
+        if (adx > ady * 2)      { y = wallDrawRef.current.y1; }
+        else if (ady > adx * 2) { x = wallDrawRef.current.x1; }
+        else { const d = snapVal(Math.min(adx, ady)); x = wallDrawRef.current.x1 + (dx >= 0 ? d : -d); y = wallDrawRef.current.y1 + (dy >= 0 ? d : -d); }
+      }
+      wallDrawRef.current = { ...wallDrawRef.current, x2: x, y2: y };
+      wallSnapRef.current = snap.snapped ? snap : null;
+      forceRender((n) => n + 1);
+    }
+
+    // Wall snap preview — update indicator even before drawing starts
+    if (activeTool === 'wall' && !wallDrawRef.current) {
+      const snap = snapWallPoint(wx, wy, rooms, walls, null);
+      const prev = wallSnapRef.current;
+      if (!prev || prev.x !== snap.x || prev.y !== snap.y || prev.snapped !== snap.snapped) {
+        wallSnapRef.current = snap.snapped ? snap : null;
+        forceRender((n) => n + 1);
+      }
+    }
+
     if (activeTool === 'furniture' && activeFurnitureDef) {
       const { x, y } = snapPt(wx, wy);
       hoverRef.current = { x, y };
@@ -1339,8 +1770,13 @@ const FloorPlanEditor = () => {
     }
 
     if (activeTool === 'door') {
-      const hit = findNearestWall(wx, wy, rooms);
-      doorHoverRef.current = hit || null;
+      const roomHit = findNearestWall(wx, wy, rooms);
+      if (roomHit) {
+        doorHoverRef.current = roomHit;
+      } else {
+        const fwHit = findNearestFWWall(wx, wy, walls);
+        doorHoverRef.current = fwHit ? { fwWall: fwHit.wall, offset: fwHit.offset } : null;
+      }
       forceRender((n) => n + 1);
     }
 
@@ -1364,6 +1800,18 @@ const FloorPlanEditor = () => {
         hoverGroupRef.current = overGroup;
         forceRender((n) => n + 1);
       }
+
+      // Wall endpoint hover (for resize cursor)
+      const EP_TOL = 0.25;
+      const overWallEp = selectedIds.length === 1 && walls.some((w) => {
+        if (w.id !== selectedIds[0]) return false;
+        return Math.hypot(wx - w.x1, wy - w.y1) <= EP_TOL ||
+               Math.hypot(wx - w.x2, wy - w.y2) <= EP_TOL;
+      });
+      if (overWallEp !== hoverWallEpRef.current) {
+        hoverWallEpRef.current = overWallEp;
+        forceRender((n) => n + 1);
+      }
     }
   };
 
@@ -1371,6 +1819,7 @@ const FloorPlanEditor = () => {
     if (panRef.current)  { panRef.current = null; return; }
     if (dragRef.current) {
       dragRef.current = null;
+      wallSnapRef.current = null;
       return;
     }
 
@@ -1401,6 +1850,17 @@ const FloorPlanEditor = () => {
       return;
     }
 
+    const ws = wallDrawRef.current;
+    if (ws) {
+      const len = Math.hypot(ws.x2 - ws.x1, ws.y2 - ws.y1);
+      if (len >= 0.25) {
+        addWall({ x1: ws.x1, y1: ws.y1, x2: ws.x2, y2: ws.y2 });
+        setActiveTool('select');
+      }
+      wallDrawRef.current = null;
+      forceRender((n) => n + 1);
+    }
+
     const ds = drawRef.current;
     if (ds) {
       const rx = Math.min(ds.startX, ds.curX), ry = Math.min(ds.startY, ds.curY);
@@ -1426,11 +1886,13 @@ const FloorPlanEditor = () => {
   const cursor =
     panRef.current                                          ? 'grabbing' :
     activeTool === 'room'                                   ? 'crosshair' :
+    activeTool === 'wall'                                   ? 'crosshair' :
     activeTool === 'furniture'                              ? 'copy' :
     activeTool === 'door'                                   ? 'cell' :
     dragRef.current?.type === 'resize'                      ? HANDLE_CURSORS[dragRef.current.key] :
     dragRef.current                                         ? 'move' :
     ctrlHeld && activeTool === 'select'                     ? 'crosshair' :
+    hoverWallEpRef.current                                  ? 'crosshair' :
     hoverHandleRef.current                                  ? HANDLE_CURSORS[hoverHandleRef.current] :
     hoverGroupRef.current                                   ? 'grab' :
     'default';
@@ -1448,7 +1910,7 @@ const FloorPlanEditor = () => {
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
-        onMouseLeave={() => { panRef.current = null; hoverRef.current = null; doorHoverRef.current = null; hoverHandleRef.current = null; }}
+        onMouseLeave={() => { panRef.current = null; hoverRef.current = null; doorHoverRef.current = null; hoverHandleRef.current = null; wallSnapRef.current = null; }}
         onContextMenu={(e) => e.preventDefault()}
       />
 
@@ -1476,6 +1938,7 @@ const FloorPlanEditor = () => {
         fontSize: 11, color: '#666', boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
         lineHeight: 1.6, pointerEvents: 'none' }}>
         {activeTool === 'room'      && 'Click + drag to draw a room'}
+        {activeTool === 'wall'      && 'Click + drag to draw a wall'}
         {activeTool === 'furniture' && activeFurnitureDef && `Click to place ${activeFurnitureDef.name}`}
         {activeTool === 'door'      && 'Click on any wall to place a door'}
         {activeTool === 'select'    && 'Click · Shift+click multi-select · Drag empty to box-select · Arrow keys nudge (0.1 m) · R rotate · Del delete · Ctrl+C/V copy · Ctrl+G group · Alt+drag pan'}

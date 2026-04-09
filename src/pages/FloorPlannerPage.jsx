@@ -146,6 +146,7 @@ const FloorPlannerPage = () => {
           {[
             { id: 'select', label: 'Select', icon: '↖', title: 'Select / move (S)' },
             { id: 'room',   label: 'Room',   icon: '⬜', title: 'Draw room' },
+            { id: 'wall',   label: 'Wall',   icon: '▌', title: 'Draw freestanding wall' },
             { id: 'door',   label: 'Door',   icon: '🚪', title: 'Place door' },
           ].map(({ id, label, icon, title }) => (
             <button key={id} onClick={() => setActiveTool(id)} title={title} style={{

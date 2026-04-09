@@ -247,7 +247,7 @@ const DoorMesh = React.memo(({ door, room }) => {
   const θ          = (door.openAngle * Math.PI) / 180;
   const closedAngle = Math.atan2(panelDir.x, panelDir.y);
   const cross       = panelDir.x * swingDir.y - panelDir.y * swingDir.x;
-  const panelAngle  = closedAngle + (cross >= 0 ? 1 : -1) * θ;
+  const panelAngle  = closedAngle + (cross >= 0 ? -1 : 1) * θ;
   const cx = hingePoint.x + (door.width / 2) * Math.sin(panelAngle);
   const cz = hingePoint.y + (door.width / 2) * Math.cos(panelAngle);
 
@@ -289,21 +289,114 @@ const EmptyState = () => (
   </Html>
 );
 
-// ── Scene root ────────────────────────────────────────────────────────────────
-const FloorPlan3DScene = () => {
-  const { rooms, furniture, doors } = useFloorPlannerStore();
-  const hasContent = rooms.length > 0;
+// ── Door on freestanding wall ─────────────────────────────────────────────────
+const FWDoorMesh = React.memo(({ door, wall }) => {
+  const { offset = 0, width = 0.9, openAngle = 90 } = door;
+  const { x1, y1, x2, y2, height: wallH = 2.4 } = wall;
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if (len < 0.01) return null;
 
-  // Compute tight bounding box over all rooms so the camera scales with layout size
-  const { center, camPos } = useMemo(() => {
-    if (!rooms.length) {
-      const c = [0, 0, 0];
-      return { center: c, camPos: [10, 18, 10] };
+  const wallAngle = Math.atan2(y2 - y1, x2 - x1);
+  // Hinge position along the wall
+  const hx = x1 + (x2 - x1) * (offset / len);
+  const hz = y1 + (y2 - y1) * (offset / len);
+
+  const doorH           = Math.min(wallH, 2.1);
+  const θ               = (openAngle * Math.PI) / 180;
+  const panelWorldAngle = wallAngle + θ;
+  const cx              = hx + (width / 2) * Math.cos(panelWorldAngle);
+  const cz              = hz + (width / 2) * Math.sin(panelWorldAngle);
+
+  return (
+    <group>
+      <mesh position={[cx, doorH / 2 + FLOOR_THICK, cz]} rotation={[0, -panelWorldAngle, 0]}>
+        <boxGeometry args={[width, doorH, PANEL_THICK]} />
+        <meshStandardMaterial color="#C8A07A" roughness={0.5} />
+      </mesh>
+      <mesh
+        position={[
+          cx + PANEL_THICK * 0.5 * Math.cos(panelWorldAngle + Math.PI / 2),
+          doorH / 2 + FLOOR_THICK,
+          cz + PANEL_THICK * 0.5 * Math.sin(panelWorldAngle + Math.PI / 2),
+        ]}
+        rotation={[0, -panelWorldAngle, 0]}
+      >
+        <boxGeometry args={[0.04, 0.12, 0.012]} />
+        <meshStandardMaterial color="#B8A000" roughness={0.3} metalness={0.7} />
+      </mesh>
+    </group>
+  );
+});
+
+// ── Scene root ────────────────────────────────────────────────────────────────
+// ── Freestanding wall mesh — renders segments with door gaps ──────────────────
+const FWWallMesh = React.memo(({ wall, wallDoors }) => {
+  const { x1, y1, x2, y2, thickness = 0.05, color = '#444444', height: wallH = 1.8 } = wall;
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if (len < 0.01) return null;
+
+  const angle = Math.atan2(y2 - y1, x2 - x1); // wall direction in XZ
+  const dirX  = (x2 - x1) / len;
+  const dirZ  = (y2 - y1) / len;
+
+  // Build segments — same logic as room wall segments
+  const sorted = (wallDoors || []).slice().sort((a, b) => a.offset - b.offset);
+  const segments = [];
+  let prev = 0;
+  for (const d of sorted) {
+    const t0 = Math.max(0, d.offset / len);
+    const t1 = Math.min(1, (d.offset + (d.width || 0.9)) / len);
+    if (t0 > prev + 0.001) {
+      segments.push({ start: prev * len, end: t0 * len });
     }
-    const minX = Math.min(...rooms.map((r) => r.x));
-    const maxX = Math.max(...rooms.map((r) => r.x + r.width));
-    const minZ = Math.min(...rooms.map((r) => r.y));
-    const maxZ = Math.max(...rooms.map((r) => r.y + r.height));
+    prev = t1;
+  }
+  if (prev < 1 - 0.001) {
+    segments.push({ start: prev * len, end: len });
+  }
+  // If no doors, one full segment
+  if (segments.length === 0 && sorted.length === 0) {
+    segments.push({ start: 0, end: len });
+  }
+
+  return (
+    <group>
+      {segments.map(({ start, end }, i) => {
+        const segLen = end - start;
+        const midT   = (start + end) / 2;
+        const cx = x1 + dirX * midT;
+        const cz = y1 + dirZ * midT;
+        return (
+          <mesh key={i} position={[cx, wallH / 2 + FLOOR_THICK, cz]} rotation={[0, -angle, 0]}>
+            <boxGeometry args={[segLen, wallH, thickness]} />
+            <meshStandardMaterial color={color} roughness={0.7} />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+});
+
+const FloorPlan3DScene = () => {
+  const { rooms, furniture, doors, walls } = useFloorPlannerStore();
+  const hasContent = rooms.length > 0 || (walls && walls.length > 0);
+
+  // Compute tight bounding box over rooms + freestanding walls
+  const { center, camPos } = useMemo(() => {
+    const pts = [
+      ...rooms.flatMap((r) => [
+        { x: r.x, z: r.y }, { x: r.x + r.width, z: r.y + r.height },
+      ]),
+      ...(walls || []).flatMap((w) => [
+        { x: w.x1, z: w.y1 }, { x: w.x2, z: w.y2 },
+      ]),
+    ];
+    if (!pts.length) return { center: [0, 0, 0], camPos: [10, 18, 10] };
+
+    const minX = Math.min(...pts.map((p) => p.x));
+    const maxX = Math.max(...pts.map((p) => p.x));
+    const minZ = Math.min(...pts.map((p) => p.z));
+    const maxZ = Math.max(...pts.map((p) => p.z));
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
     const spanX = maxX - minX;
@@ -333,7 +426,7 @@ const FloorPlan3DScene = () => {
   return (
     <div style={{ width: '100%', height: '100%' }}>
       <Canvas
-        key={`${camPos[0].toFixed(1)}-${camPos[2].toFixed(1)}`}
+        key={`${camPos[0].toFixed(1)}-${camPos[1].toFixed(1)}-${camPos[2].toFixed(1)}`}
         camera={{ position: camPos, fov: 38, near: 0.1, far: 500 }}
         style={{ width: '100%', height: '100%' }}
       >
@@ -356,6 +449,19 @@ const FloorPlan3DScene = () => {
           {doors.map((door) => {
             const room = rooms.find((r) => r.id === door.roomId);
             return room ? <DoorMesh key={door.id} door={door} room={room} /> : null;
+          })}
+
+          {walls && walls.map((wall) => (
+            <FWWallMesh
+              key={wall.id}
+              wall={wall}
+              wallDoors={doors.filter((d) => d.wallId === wall.id)}
+            />
+          ))}
+
+          {doors.filter((d) => d.wallId).map((door) => {
+            const wall = walls && walls.find((w) => w.id === door.wallId);
+            return wall ? <FWDoorMesh key={door.id} door={door} wall={wall} /> : null;
           })}
 
           {furniture.map((item) => (

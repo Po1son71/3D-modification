@@ -268,6 +268,7 @@ const snapshot = (state) => ({
   rooms:     JSON.parse(JSON.stringify(state.rooms)),
   furniture: JSON.parse(JSON.stringify(state.furniture)),
   doors:     JSON.parse(JSON.stringify(state.doors)),
+  walls:     JSON.parse(JSON.stringify(state.walls)),
   groups:    JSON.parse(JSON.stringify(state.groups)),
 });
 
@@ -277,6 +278,7 @@ const useFloorPlannerStore = create((set, get) => ({
   rooms:     [],
   furniture: [],
   doors:     [],
+  walls:     [], // freestanding walls: [{ id, x1,y1,x2,y2, thickness, color, height }]
 
   selectedIds:        [],   // array of selected IDs
   lockedIds:          [],   // array of locked IDs
@@ -316,7 +318,8 @@ const useFloorPlannerStore = create((set, get) => ({
       rooms:     prev.rooms,
       furniture: prev.furniture,
       doors:     prev.doors,
-      groups:    prev.groups ?? [],
+      walls:     prev.walls     ?? [],
+      groups:    prev.groups    ?? [],
       selectedIds: [],
     });
     get()._showMsg('Undone');
@@ -332,7 +335,8 @@ const useFloorPlannerStore = create((set, get) => ({
       rooms:     next.rooms,
       furniture: next.furniture,
       doors:     next.doors,
-      groups:    next.groups ?? [],
+      walls:     next.walls     ?? [],
+      groups:    next.groups    ?? [],
       selectedIds: [],
     });
     get()._showMsg('Redone');
@@ -450,6 +454,35 @@ const useFloorPlannerStore = create((set, get) => ({
     }));
   },
 
+  // ── Freestanding walls ─────────────────────────────────────────────────────
+  // Wall shape: { id, x1, y1, x2, y2, thickness, color, height }
+  addWall: (wallData) => {
+    get()._pushHistory();
+    set((state) => {
+      const newWall = {
+        id:        `wall-${uid()}`,
+        thickness: 0.05,
+        color:     '#444444',
+        height:    1.8,   // matches default room wall height
+        ...wallData,
+      };
+      return { walls: [...state.walls, newWall], selectedIds: [newWall.id] };
+    });
+  },
+
+  updateWall: (id, updates) =>
+    set((state) => ({ walls: state.walls.map((w) => w.id === id ? { ...w, ...updates } : w) })),
+
+  deleteWall: (id) => {
+    get()._pushHistory();
+    set((state) => ({
+      walls:       state.walls.filter((w) => w.id !== id),
+      doors:       state.doors.filter((d) => d.wallId !== id),
+      selectedIds: state.selectedIds.filter((x) => x !== id),
+      lockedIds:   state.lockedIds.filter((x) => x !== id),
+    }));
+  },
+
   // ── Multi-type helpers ─────────────────────────────────────────────────────
   deleteSelected: () => {
     const { selectedIds, lockedIds } = get();
@@ -460,7 +493,8 @@ const useFloorPlannerStore = create((set, get) => ({
     set((state) => ({
       rooms:       state.rooms.filter((r) => !del.has(r.id)),
       furniture:   state.furniture.filter((f) => !del.has(f.id)),
-      doors:       state.doors.filter((d) => !del.has(d.id) && !del.has(d.roomId)),
+      doors:       state.doors.filter((d) => !del.has(d.id) && !del.has(d.roomId) && !del.has(d.wallId)),
+      walls:       state.walls.filter((w) => !del.has(w.id)),
       // Remove deleted items from any groups; drop empty groups
       groups:      state.groups
         .map((g) => ({ ...g, itemIds: g.itemIds.filter((id) => !del.has(id)) }))
@@ -598,12 +632,12 @@ const useFloorPlannerStore = create((set, get) => ({
 
   clearAll: () => {
     get()._pushHistory();
-    set({ rooms: [], furniture: [], doors: [], groups: [], selectedIds: [], lockedIds: [] });
+    set({ rooms: [], furniture: [], doors: [], walls: [], groups: [], selectedIds: [], lockedIds: [] });
   },
 
   // ── DCIM: Export / Import ──────────────────────────────────────────────────
   exportLayout: () => {
-    const { rooms, furniture, doors, groups } = get();
+    const { rooms, furniture, doors, walls, groups } = get();
 
     // Compute which room each asset's center falls inside
     const getRoomId = (asset) => {
@@ -625,6 +659,7 @@ const useFloorPlannerStore = create((set, get) => ({
         roomId:   getRoomId(f),   // computed — useful for external systems
       })),
       doors:  doors.map((d) => ({ ...d })),
+      walls:  walls.map((w) => ({ ...w })),
       groups: groups.map((g) => ({ ...g })),
     };
 
@@ -646,6 +681,7 @@ const useFloorPlannerStore = create((set, get) => ({
         rooms:       data.rooms     || [],
         furniture:   data.assets    || data.furniture || [],
         doors:       data.doors     || [],
+        walls:       data.walls     || [],
         groups:      data.groups    || [],
         selectedIds: [],
         lockedIds:   [],
@@ -664,6 +700,7 @@ const useFloorPlannerStore = create((set, get) => ({
       const inRooms     = data.rooms     || [];
       const inFurniture = data.assets    || data.furniture || [];
       const inDoors     = data.doors     || [];
+      const inWalls     = data.walls     || [];
       const inGroups    = data.groups    || [];
 
       // Remap IDs so imported items never collide with existing ones
@@ -681,24 +718,33 @@ const useFloorPlannerStore = create((set, get) => ({
         return { ...f, id: newId };
       });
 
+      const wallIdMap = {};
+      const remappedWalls = inWalls.map((w) => {
+        const newId = `wall-${uid()}`;
+        wallIdMap[w.id] = newId;
+        return { ...w, id: newId };
+      });
+
       const remappedDoors = inDoors.map((d) => ({
         ...d,
         id:     `door-${uid()}`,
-        roomId: roomIdMap[d.roomId] || d.roomId,
+        roomId: d.roomId ? (roomIdMap[d.roomId] || d.roomId) : undefined,
+        wallId: d.wallId ? (wallIdMap[d.wallId] || d.wallId) : undefined,
       }));
 
       const remappedGroups = inGroups.map((g) => ({
         ...g,
         id:      `group-${uid()}`,
-        itemIds: g.itemIds.map((id) => furniIdMap[id] || roomIdMap[id] || id),
+        itemIds: g.itemIds.map((id) => furniIdMap[id] || roomIdMap[id] || wallIdMap[id] || id),
       }));
 
       set((state) => ({
         rooms:     [...state.rooms,     ...remappedRooms],
         furniture: [...state.furniture, ...remappedFurni],
         doors:     [...state.doors,     ...remappedDoors],
+        walls:     [...state.walls,     ...remappedWalls],
         groups:    [...state.groups,    ...remappedGroups],
-        selectedIds: remappedRooms.map((r) => r.id).concat(remappedFurni.map((f) => f.id)),
+        selectedIds: remappedRooms.map((r) => r.id).concat(remappedFurni.map((f) => f.id)).concat(remappedWalls.map((w) => w.id)),
         lockedIds:   state.lockedIds,
       }));
       get()._showMsg('Layout merged');
