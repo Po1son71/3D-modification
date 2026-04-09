@@ -53,7 +53,7 @@ class ModelErrorBoundary extends Component {
 }
 
 // ── GLB model mesh — auto-scales loaded scene to fit item dimensions ──────────
-const ModelMeshInner = React.memo(({ modelPath, width, height3d, depth, rotation }) => {
+const ModelMeshInner = React.memo(({ modelPath, width, height3d, depth, rotation, color }) => {
   const { scene } = useGLTF(modelPath);
 
   const { clone, offset } = useMemo(() => {
@@ -77,13 +77,28 @@ const ModelMeshInner = React.memo(({ modelPath, width, height3d, depth, rotation
     return { clone, offset };
   }, [scene, width, height3d, depth]);
 
+  // Apply color tint to all mesh materials whenever color changes
+  useMemo(() => {
+    if (!color) return;
+    const threeColor = new THREE.Color(color);
+    clone.traverse((child) => {
+      if (!child.isMesh) return;
+      const wasArray = Array.isArray(child.material);
+      const mats = wasArray ? child.material : [child.material];
+      const tinted = mats.map((mat) => {
+        const m = mat.clone();
+        m.color = threeColor.clone();
+        return m;
+      });
+      child.material = wasArray ? tinted : tinted[0];
+    });
+  }, [clone, color]);
+
   return (
     <group rotation={[0, -(rotation * Math.PI) / 180, 0]}>
       <primitive
         object={clone}
         position={[offset.x, offset.y, offset.z]}
-       
-       
       />
     </group>
   );
@@ -136,6 +151,7 @@ const FurnitureMesh = React.memo(({ item }) => {
             height3d={height3d}
             depth={depth}
             rotation={rotation}
+            color={color}
           />
         </Suspense>
       </ModelErrorBoundary>
