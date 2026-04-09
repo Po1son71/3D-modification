@@ -286,7 +286,7 @@ const DoorMesh = React.memo(({ door, room }) => {
 const Ground = () => (
   <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
     <planeGeometry args={[400, 400]} />
-    <meshStandardMaterial color="#F5F7FA" roughness={1} />
+    <meshStandardMaterial color="#FFFFFF" roughness={1} emissive="#FFFFFF" emissiveIntensity={0.15} />
   </mesh>
 );
 
@@ -307,21 +307,40 @@ const EmptyState = () => (
 
 // ── Door on freestanding wall ─────────────────────────────────────────────────
 const FWDoorMesh = React.memo(({ door, wall }) => {
-  const { offset = 0, width = 0.9, openAngle = 90 } = door;
+  const { offset = 0, width = 0.9, openAngle = 90, hingeSide = 'left', swingIn = true } = door;
   const { x1, y1, x2, y2, height: wallH = 2.4 } = wall;
   const len = Math.hypot(x2 - x1, y2 - y1);
   if (len < 0.01) return null;
 
-  const wallAngle = Math.atan2(y2 - y1, x2 - x1);
-  // Hinge position along the wall
-  const hx = x1 + (x2 - x1) * (offset / len);
-  const hz = y1 + (y2 - y1) * (offset / len);
+  const dirX = (x2 - x1) / len, dirZ = (y2 - y1) / len;
+  // Perp = left side of wall direction (inward)
+  const perpX = -dirZ, perpZ = dirX;
 
-  const doorH           = Math.min(wallH, 2.1);
-  const θ               = (openAngle * Math.PI) / 180;
-  const panelWorldAngle = wallAngle + θ;
-  const cx              = hx + (width / 2) * Math.cos(panelWorldAngle);
-  const cz              = hz + (width / 2) * Math.sin(panelWorldAngle);
+  // Hinge at start or end of gap
+  const hingeOffset = hingeSide === 'left' ? offset : offset + width;
+  const hx = x1 + dirX * hingeOffset;
+  const hz = y1 + dirZ * hingeOffset;
+
+  // Closed panel direction: away from hinge along wall
+  const closedDirX = hingeSide === 'left' ?  dirX : -dirX;
+  const closedDirZ = hingeSide === 'left' ?  dirZ : -dirZ;
+  // Swing direction: in 3D XZ, "inward" = perp; "outward" = -perp
+  const swingDirX = swingIn ?  perpX : -perpX;
+  const swingDirZ = swingIn ?  perpZ : -perpZ;
+
+  // Cross product (Y component) to determine rotation sign
+  // FWDoor uses standard atan2(z,x) — same convention as 2D canvas atan2(y,x),
+  // so sign matches 2D directly (no negation needed, unlike room DoorMesh which swaps atan2 args)
+  const cross = closedDirX * swingDirZ - closedDirZ * swingDirX;
+  const sign  = cross >= 0 ? 1 : -1;
+
+  const closedAngle    = Math.atan2(closedDirZ, closedDirX);
+  const θ              = (openAngle * Math.PI) / 180;
+  const panelWorldAngle = closedAngle + sign * θ;
+
+  const doorH = Math.min(wallH, 2.1);
+  const cx = hx + (width / 2) * Math.cos(panelWorldAngle);
+  const cz = hz + (width / 2) * Math.sin(panelWorldAngle);
 
   return (
     <group>
@@ -451,7 +470,7 @@ const FloorPlan3DScene = () => {
         <ambientLight intensity={0.75} />
         <directionalLight position={[15, 25, 15]} intensity={0.9} castShadow />
         <directionalLight position={[-10, 15, -10]} intensity={0.35} />
-        <hemisphereLight skyColor="#FFFFFF" groundColor="#E8EDF2" intensity={0.5} />
+        <hemisphereLight skyColor="#FFFFFF" groundColor="#FFFFFF" intensity={0.5} />
 
         <Suspense fallback={null}>
           <Ground />

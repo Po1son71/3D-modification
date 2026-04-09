@@ -1121,31 +1121,46 @@ const FloorPlanEditor = () => {
     const len = Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1);
     if (len < 0.01) return;
     const dirX = (fw.x2 - fw.x1) / len, dirY = (fw.y2 - fw.y1) / len;
-    // Perpendicular (inward = left side of wall direction)
+    // Perpendicular: left side of wall direction = "inward"
     const perpX = -dirY, perpY = dirX;
 
-    const hingeW = { x: fw.x1 + dirX * door.offset, y: fw.y1 + dirY * door.offset };
+    const hingeSide = door.hingeSide ?? 'left';
+    const swingIn   = door.swingIn   ?? true;
+
+    // Hinge is at start (left) or end (right) of the door gap
+    const hingeOffset = hingeSide === 'left' ? door.offset : door.offset + door.width;
+    const hingeW = { x: fw.x1 + dirX * hingeOffset, y: fw.y1 + dirY * hingeOffset };
     const hinge  = toScreen(hingeW.x, hingeW.y);
     const radius = door.width * PPM * sc;
     const θ      = (door.openAngle ?? 90) * Math.PI / 180;
 
-    // Panel start direction = along wall
+    // Panel closed direction: away from hinge along wall
+    const closedDirX = hingeSide === 'left' ?  dirX :  -dirX;
+    const closedDirY = hingeSide === 'left' ?  dirY :  -dirY;
+    // Swing direction: inward = perp, outward = -perp
+    const swingDirX = swingIn ? perpX : -perpX;
+    const swingDirY = swingIn ? perpY : -perpY;
+
+    // Cross product to determine arc direction
+    const cross = closedDirX * swingDirY - closedDirY * swingDirX;
+    const anticlockwise = cross < 0;
+
+    const closedAngle = Math.atan2(closedDirY, closedDirX);
+    const endAngle    = closedAngle + (anticlockwise ? -θ : θ);
+
     const panelColor = isSel ? '#1565C0' : '#7B5B3A';
     const arcColor   = isSel ? 'rgba(21,101,192,0.35)' : 'rgba(123,91,58,0.3)';
-
-    const startAngle   = Math.atan2(dirY, dirX);
-    const endAngle     = startAngle + θ; // swing toward perpendicular
 
     ctx.strokeStyle = arcColor;
     ctx.lineWidth   = Math.max(0.8, 1 * sc);
     ctx.setLineDash([3 * sc, 3 * sc]);
     ctx.beginPath();
-    ctx.arc(hinge.x, hinge.y, radius, startAngle, endAngle, false);
+    ctx.arc(hinge.x, hinge.y, radius, closedAngle, endAngle, anticlockwise);
     ctx.stroke();
     ctx.setLineDash([]);
 
     // Closed panel line
-    const closedTipS = { x: hinge.x + radius * Math.cos(startAngle), y: hinge.y + radius * Math.sin(startAngle) };
+    const closedTipS = { x: hinge.x + radius * Math.cos(closedAngle), y: hinge.y + radius * Math.sin(closedAngle) };
     ctx.strokeStyle = arcColor; ctx.lineWidth = Math.max(0.8, 1 * sc);
     ctx.beginPath(); ctx.moveTo(hinge.x, hinge.y); ctx.lineTo(closedTipS.x, closedTipS.y); ctx.stroke();
 
@@ -1157,9 +1172,6 @@ const FloorPlanEditor = () => {
 
     ctx.fillStyle = panelColor;
     ctx.beginPath(); ctx.arc(hinge.x, hinge.y, Math.max(3, 4 * sc), 0, Math.PI * 2); ctx.fill();
-
-    // Suppress unused warning
-    void perpX; void perpY;
   };
 
   // ── Draw furniture ──────────────────────────────────────────────────────────
@@ -1350,13 +1362,23 @@ const FloorPlanEditor = () => {
         const len = Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1);
         if (len < 0.01) continue;
         const dirX = (fw.x2 - fw.x1) / len, dirY = (fw.y2 - fw.y1) / len;
-        const hingeX = fw.x1 + dirX * door.offset;
-        const hingeY = fw.y1 + dirY * door.offset;
+        const hingeSide = door.hingeSide ?? 'left';
+        const swingIn   = door.swingIn   ?? true;
+        const hingeOffset = hingeSide === 'left' ? door.offset : door.offset + door.width;
+        const hingeX = fw.x1 + dirX * hingeOffset;
+        const hingeY = fw.y1 + dirY * hingeOffset;
         if (Math.hypot(wx - hingeX, wy - hingeY) < tol) return door;
-        // Mid-panel point
+        // Mid-panel point along open panel direction
+        const closedDirX = hingeSide === 'left' ?  dirX : -dirX;
+        const closedDirY = hingeSide === 'left' ?  dirY : -dirY;
+        const perpX = -dirY, perpY = dirX;
+        const swingDirX = swingIn ?  perpX : -perpX;
+        const swingDirY = swingIn ?  perpY : -perpY;
+        const cross = closedDirX * swingDirY - closedDirY * swingDirX;
+        const anticlockwise = cross < 0;
         const θ = (door.openAngle ?? 90) * Math.PI / 180;
-        const startAngle = Math.atan2(dirY, dirX);
-        const endAngle   = startAngle + θ;
+        const closedAngle = Math.atan2(closedDirY, closedDirX);
+        const endAngle = closedAngle + (anticlockwise ? -θ : θ);
         const midX = hingeX + (door.width / 2) * Math.cos(endAngle);
         const midY = hingeY + (door.width / 2) * Math.sin(endAngle);
         if (Math.hypot(wx - midX, wy - midY) < tol) return door;
