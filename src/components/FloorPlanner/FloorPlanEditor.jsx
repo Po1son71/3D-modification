@@ -210,8 +210,8 @@ const FloorPlanEditor = () => {
   const containerRef = useRef(null);
   const canvasRef    = useRef(null);
 
-  const [scale, setScale]           = useState(1.2);
-  const [offset, setOffset]         = useState({ x: 180, y: 120 });
+  const [scale, setScale]           = useState(() => { const c = useFloorPlannerStore.getState().editorCamera; return c?.scale ?? 1.2; });
+  const [offset, setOffset]         = useState(() => { const c = useFloorPlannerStore.getState().editorCamera; return c ? { x: c.offsetX, y: c.offsetY } : { x: 180, y: 120 }; });
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
 
   // Mutable refs for event handlers (avoid stale closures)
@@ -230,11 +230,17 @@ const FloorPlanEditor = () => {
   scaleRef.current  = scale;
   offsetRef.current = offset;
 
+  // Persist camera to store so it survives 2D ↔ 3D view switches
+  useEffect(() => {
+    setEditorCamera({ scale, offsetX: offset.x, offsetY: offset.y });
+  }, [scale, offset.x, offset.y]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const {
     rooms, furniture, doors, groups,
     selectedIds, lockedIds,
     activeTool, activeFurnitureDef,
     showHeatmap,
+    editorCamera, setEditorCamera,
     addRoom, updateRoom,
     addFurniture, updateFurniture,
     addDoor, updateDoor,

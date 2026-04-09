@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState } from 'react';
 import FloorPlanEditor from '../components/FloorPlanner/FloorPlanEditor';
 import FloorPlan3DScene from '../components/FloorPlanner/FloorPlan3DScene';
 import FurnitureCatalog from '../components/FloorPlanner/FurnitureCatalog';
@@ -73,22 +73,23 @@ const FloorPlannerPage = () => {
     undo, redo,
     lockSelected, unlockSelected,
     copySelected, pasteClipboard,
-    exportLayout, importLayout,
+    exportLayout, importLayout, mergeLayout,
     toggleHeatmap,
     rooms, furniture,
     undoMsg,
   } = useFloorPlannerStore();
 
-  const jsonInputRef = useRef(null);
+  const jsonInputRef    = useRef(null);
+  const [pendingJson, setPendingJson] = useState(null); // { text, name } waiting for user choice
 
   const handleLoadJson = useCallback((e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => importLayout(ev.target.result);
+    reader.onload = (ev) => setPendingJson({ text: ev.target.result, name: file.name });
     reader.readAsText(file);
     e.target.value = '';
-  }, [importLayout]);
+  }, []);
 
   const selCount    = selectedIds.length;
   const anySelected = selCount > 0;
@@ -321,18 +322,18 @@ const FloorPlannerPage = () => {
 
       {/* ── Status bar ───────────────────────────────────────────── */}
       <div style={{
-        height: 28, background: C.navy,
+        height: 28, background: '#FFFFFF',
         display: 'flex', alignItems: 'center',
         padding: '0 14px', gap: 10,
         flexShrink: 0,
-        borderTop: '1px solid rgba(255,255,255,0.06)',
+        borderTop: `1px solid ${C.border}`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <StatusDot color={C.success} />
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.3px' }}>Ready</span>
+          <span style={{ fontSize: 11, color: C.textMuted, letterSpacing: '0.3px' }}>Ready</span>
         </div>
 
-        <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
+        <div style={{ width: 1, height: 14, background: C.border }} />
 
         <StatusItem label="Rooms" value={rooms.length} />
         <StatusItem label="Assets" value={furniture.length} />
@@ -342,12 +343,86 @@ const FloorPlannerPage = () => {
 
         <div style={{ flex: 1 }} />
 
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.5px' }}>
+        <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: '0.5px' }}>
           DCIM STUDIO v1.0
         </span>
       </div>
 
       <Toast msg={undoMsg} />
+
+      {/* ── Import mode dialog ───────────────────────────────────── */}
+      {pendingJson && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10000,
+          background: 'rgba(0,0,0,0.35)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+          onClick={() => setPendingJson(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 10,
+              boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+              width: 380, padding: '24px 24px 20px',
+              border: '1px solid #E2E8F0',
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 4 }}>
+              Import Layout
+            </div>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 18 }}>
+              <span style={{ fontWeight: 600, color: '#374151' }}>{pendingJson.name}</span>
+              {' '}— how do you want to import?
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {/* Option A — Merge */}
+              <button
+                onClick={() => { mergeLayout(pendingJson.text); setPendingJson(null); }}
+                style={{
+                  padding: '10px 14px', borderRadius: 7, textAlign: 'left',
+                  border: `1px solid ${C.border}`, background: '#F8FAFC',
+                  cursor: 'pointer', transition: 'all 0.1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border;  e.currentTarget.style.background = '#F8FAFC'; }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B' }}>➕ Add to current</div>
+                <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                  Imported rooms and assets are placed alongside existing ones. All IDs are re-generated.
+                </div>
+              </button>
+
+              {/* Option B — Overwrite */}
+              <button
+                onClick={() => { importLayout(pendingJson.text); setPendingJson(null); }}
+                style={{
+                  padding: '10px 14px', borderRadius: 7, textAlign: 'left',
+                  border: `1px solid ${C.border}`, background: '#F8FAFC',
+                  cursor: 'pointer', transition: 'all 0.1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.danger; e.currentTarget.style.background = C.dangerBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = '#F8FAFC'; }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#EF4444' }}>🗑 Overwrite</div>
+                <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                  Current floor plan is discarded and replaced entirely with the imported file.
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setPendingJson(null)}
+              style={{
+                width: '100%', padding: '7px', borderRadius: 6,
+                border: `1px solid ${C.border}`, background: 'transparent',
+                color: C.textSub, fontSize: 12, cursor: 'pointer',
+              }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -361,8 +436,8 @@ const StatusDot = ({ color }) => (
 
 const StatusItem = ({ label, value, color }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3px' }}>{label}</span>
-    <span style={{ fontSize: 11, color: color || 'rgba(255,255,255,0.65)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: '0.3px' }}>{label}</span>
+    <span style={{ fontSize: 11, color: color || C.textSub, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
   </div>
 );
 

@@ -57,8 +57,8 @@ export const FURNITURE_CATALOG = {
     'Server': {
       'Dell': [
         { type: 'server-rack', name: 'PowerEdge 42U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 2.0,  modelPath: '/models/server-rack.glb' },
-        { type: 'server-rack', name: 'PowerEdge 24U',   width: 0.6, depth: 0.9,  color: '#1E3A6E', height3d: 1.2,  modelPath: '/models/server-rack.glb' },
-        { type: 'server-rack', name: 'PowerEdge 12U',   width: 0.6, depth: 0.7,  color: '#1E3A6E', height3d: 0.65, modelPath: '/models/server-rack.glb' },
+        { type: 'server-rack', name: 'PowerEdge 24U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 1.2,  modelPath: '/models/server-rack.glb' },
+        { type: 'server-rack', name: 'PowerEdge 12U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 0.65, modelPath: '/models/server-rack.glb' },
       ],
       'HP / HPE': [
         { type: 'server-rack', name: 'ProLiant 42U',    width: 0.6, depth: 1.0,  color: '#0096D6', height3d: 2.0,  modelPath: '/models/server-rack.glb' },
@@ -288,6 +288,7 @@ const useFloorPlannerStore = create((set, get) => ({
   viewMode:           '2d',
   showHeatmap:        false,
   undoMsg:            null, // { text, ts } — used for toast notifications
+  editorCamera:       null, // { scale, offsetX, offsetY } — persists 2D pan/zoom across view switches
 
   past:   [],
   future: [],
@@ -654,6 +655,59 @@ const useFloorPlannerStore = create((set, get) => ({
       get()._showMsg('Import failed — invalid JSON');
     }
   },
+
+  mergeLayout: (jsonText) => {
+    try {
+      const data = typeof jsonText === 'string' ? JSON.parse(jsonText) : jsonText;
+      get()._pushHistory();
+
+      const inRooms     = data.rooms     || [];
+      const inFurniture = data.assets    || data.furniture || [];
+      const inDoors     = data.doors     || [];
+      const inGroups    = data.groups    || [];
+
+      // Remap IDs so imported items never collide with existing ones
+      const roomIdMap = {};
+      const remappedRooms = inRooms.map((r) => {
+        const newId = `room-${uid()}`;
+        roomIdMap[r.id] = newId;
+        return { ...r, id: newId };
+      });
+
+      const furniIdMap = {};
+      const remappedFurni = inFurniture.map((f) => {
+        const newId = `furniture-${uid()}`;
+        furniIdMap[f.id] = newId;
+        return { ...f, id: newId };
+      });
+
+      const remappedDoors = inDoors.map((d) => ({
+        ...d,
+        id:     `door-${uid()}`,
+        roomId: roomIdMap[d.roomId] || d.roomId,
+      }));
+
+      const remappedGroups = inGroups.map((g) => ({
+        ...g,
+        id:      `group-${uid()}`,
+        itemIds: g.itemIds.map((id) => furniIdMap[id] || roomIdMap[id] || id),
+      }));
+
+      set((state) => ({
+        rooms:     [...state.rooms,     ...remappedRooms],
+        furniture: [...state.furniture, ...remappedFurni],
+        doors:     [...state.doors,     ...remappedDoors],
+        groups:    [...state.groups,    ...remappedGroups],
+        selectedIds: remappedRooms.map((r) => r.id).concat(remappedFurni.map((f) => f.id)),
+        lockedIds:   state.lockedIds,
+      }));
+      get()._showMsg('Layout merged');
+    } catch {
+      get()._showMsg('Merge failed — invalid JSON');
+    }
+  },
+
+  setEditorCamera: (cam) => set({ editorCamera: cam }),
 }));
 
 export default useFloorPlannerStore;

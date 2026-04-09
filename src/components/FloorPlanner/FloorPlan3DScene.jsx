@@ -270,7 +270,7 @@ const DoorMesh = React.memo(({ door, room }) => {
 const Ground = () => (
   <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
     <planeGeometry args={[400, 400]} />
-    <meshStandardMaterial color="#B8BEC4" roughness={1} />
+    <meshStandardMaterial color="#F5F7FA" roughness={1} />
   </mesh>
 );
 
@@ -337,12 +337,12 @@ const FloorPlan3DScene = () => {
         camera={{ position: camPos, fov: 38, near: 0.1, far: 500 }}
         style={{ width: '100%', height: '100%' }}
       >
-        <color attach="background" args={['#CDD8E3']} />
+        <color attach="background" args={['#FFFFFF']} />
 
-        <ambientLight intensity={0.55} />
-        <directionalLight position={[15, 25, 15]} intensity={0.85} />
-        <directionalLight position={[-10, 15, -10]} intensity={0.25} />
-        <hemisphereLight skyColor="#EEF5FF" groundColor="#888888" intensity={0.4} />
+        <ambientLight intensity={0.75} />
+        <directionalLight position={[15, 25, 15]} intensity={0.9} castShadow />
+        <directionalLight position={[-10, 15, -10]} intensity={0.35} />
+        <hemisphereLight skyColor="#FFFFFF" groundColor="#E8EDF2" intensity={0.5} />
 
         <Suspense fallback={null}>
           <Ground />
