@@ -325,94 +325,107 @@ const FurnitureCatalog = () => {
                       return (
                         <div key={typeGroup}>
 
-                          {/* Level 2 — Type group row */}
+                          {/* Level 2 — Type group header (bold, prominent) */}
                           <button
                             onClick={() => toggleType(typeGroup)}
                             style={{
-                              width: '100%', padding: '7px 12px 7px 13px', textAlign: 'left',
-                              background: typeOpen ? 'rgba(14,165,233,0.05)' : 'transparent',
-                              border: 'none', borderBottom: '1px solid #EAEFF5',
-                              borderLeft: `3px solid ${typeOpen ? meta.accent : 'transparent'}`,
+                              width: '100%', padding: '9px 12px 9px 12px', textAlign: 'left',
+                              background: typeOpen ? `${meta.accent}10` : '#F4F6FA',
+                              border: 'none',
+                              borderTop: '1px solid #E2E8F0',
+                              borderBottom: `1px solid ${typeOpen ? `${meta.accent}22` : '#E2E8F0'}`,
+                              borderLeft: `4px solid ${typeOpen ? meta.accent : '#CBD5E1'}`,
                               cursor: 'pointer',
-                              display: 'flex', alignItems: 'center', gap: 7,
+                              display: 'flex', alignItems: 'center', gap: 8,
                               transition: 'all 0.1s',
                             }}
-                            onMouseEnter={(e) => { if (!typeOpen) e.currentTarget.style.background = '#F1F5F9'; }}
-                            onMouseLeave={(e) => { if (!typeOpen) e.currentTarget.style.background = 'transparent'; }}
+                            onMouseEnter={(e) => { if (!typeOpen) e.currentTarget.style.background = '#EAEFF6'; }}
+                            onMouseLeave={(e) => { if (!typeOpen) e.currentTarget.style.background = typeOpen ? `${meta.accent}10` : '#F4F6FA'; }}
                           >
-                            <span style={{ fontSize: 12 }}>{typeIcon}</span>
+                            <span style={{ fontSize: 14 }}>{typeIcon}</span>
                             <span style={{
-                              flex: 1, fontSize: 12,
-                              fontWeight: typeOpen ? 600 : 500,
-                              color: typeOpen ? meta.accent : '#374151',
+                              flex: 1, fontSize: 13,
+                              fontWeight: 700,
+                              color: typeOpen ? meta.accent : '#1E293B',
+                              letterSpacing: '0.1px',
                             }}>{typeGroup}</span>
                             <span style={{
-                              fontSize: 10, color: '#94A3B8',
-                              background: '#EEF2F7', borderRadius: 10,
-                              padding: '0 5px', fontVariantNumeric: 'tabular-nums',
+                              fontSize: 10, color: typeOpen ? meta.accent : '#94A3B8',
+                              background: typeOpen ? `${meta.accent}14` : '#E8EDF4',
+                              borderRadius: 10, padding: '1px 6px',
+                              fontVariantNumeric: 'tabular-nums', fontWeight: 600,
                             }}>{totalItems}</span>
                             <span style={{
-                              fontSize: 10, fontWeight: 700, marginLeft: 2,
-                              color: typeOpen ? meta.accent : '#CBD5E1',
+                              fontSize: 10, fontWeight: 700,
+                              color: typeOpen ? meta.accent : '#94A3B8',
                             }}>{typeOpen ? '▾' : '▸'}</span>
                           </button>
 
-                          {/* Level 3 — Brand rows (inside type group) */}
-                          {typeOpen && Object.entries(brands).map(([brand, items]) => {
-                            const brandKey   = `${typeGroup}/${brand}`;
-                            const brandOpen  = openBrands.has(brandKey);
-                            const brandColor = BRAND_COLOR[brand] || '#64748B';
+                          {/* Level 3 — Brand sub-bullets */}
+                          {typeOpen && (
+                            <div style={{ background: '#FAFBFD', borderBottom: '1px solid #EEF1F6' }}>
+                              {Object.entries(brands).map(([brand, items]) => {
+                                const brandKey   = `${typeGroup}/${brand}`;
+                                const brandOpen  = openBrands.has(brandKey);
+                                const brandColor = BRAND_COLOR[brand] || '#64748B';
 
-                            return (
-                              <div key={brand}>
+                                return (
+                                  <div key={brand}>
 
-                                {/* Brand row */}
-                                <button
-                                  onClick={() => toggleBrand(brandKey)}
-                                  style={{
-                                    width: '100%', padding: '5px 12px 5px 22px', textAlign: 'left',
-                                    background: brandOpen ? `${brandColor}08` : 'transparent',
-                                    border: 'none', borderBottom: '1px solid #F1F5F9',
-                                    borderLeft: `3px solid ${brandOpen ? brandColor : 'transparent'}`,
-                                    cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', gap: 7,
-                                    transition: 'all 0.1s',
-                                  }}
-                                  onMouseEnter={(e) => { if (!brandOpen) e.currentTarget.style.background = '#F4F6FA'; }}
-                                  onMouseLeave={(e) => { if (!brandOpen) e.currentTarget.style.background = 'transparent'; }}
-                                >
-                                  <div style={{
-                                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                                    background: brandColor,
-                                    boxShadow: brandOpen ? `0 0 0 2px ${brandColor}28` : 'none',
-                                  }} />
-                                  <span style={{
-                                    flex: 1, fontSize: 11,
-                                    fontWeight: brandOpen ? 600 : 400,
-                                    color: brandOpen ? brandColor : '#374151',
-                                  }}>{brand}</span>
-                                  <span style={{
-                                    fontSize: 10, color: '#94A3B8',
-                                    fontVariantNumeric: 'tabular-nums',
-                                  }}>{items.length}</span>
-                                  <span style={{
-                                    fontSize: 10, fontWeight: 700, marginLeft: 2,
-                                    color: brandOpen ? brandColor : '#CBD5E1',
-                                  }}>{brandOpen ? '▾' : '▸'}</span>
-                                </button>
+                                    {/* Brand sub-bullet row */}
+                                    <button
+                                      onClick={() => toggleBrand(brandKey)}
+                                      style={{
+                                        width: '100%', padding: '5px 10px 5px 0', textAlign: 'left',
+                                        background: brandOpen ? `${brandColor}07` : 'transparent',
+                                        border: 'none', borderBottom: '1px solid #F1F5F9',
+                                        cursor: 'pointer',
+                                        display: 'flex', alignItems: 'center',
+                                        transition: 'background 0.1s',
+                                      }}
+                                      onMouseEnter={(e) => { if (!brandOpen) e.currentTarget.style.background = '#F0F4FA'; }}
+                                      onMouseLeave={(e) => { if (!brandOpen) e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                      {/* Tree line indent */}
+                                      <div style={{
+                                        width: 24, flexShrink: 0, display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center',
+                                        color: '#CBD5E1', fontSize: 10, userSelect: 'none',
+                                      }}>│</div>
+                                      <div style={{
+                                        width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                                        background: brandColor, marginRight: 7,
+                                        boxShadow: brandOpen ? `0 0 0 2px ${brandColor}28` : 'none',
+                                      }} />
+                                      <span style={{
+                                        flex: 1, fontSize: 11,
+                                        fontWeight: brandOpen ? 600 : 400,
+                                        color: brandOpen ? brandColor : '#374151',
+                                      }}>{brand}</span>
+                                      <span style={{
+                                        fontSize: 10, color: '#94A3B8', marginRight: 5,
+                                        fontVariantNumeric: 'tabular-nums',
+                                      }}>{items.length}</span>
+                                      <span style={{
+                                        fontSize: 9, fontWeight: 700, marginRight: 4,
+                                        color: brandOpen ? brandColor : '#CBD5E1',
+                                      }}>{brandOpen ? '▾' : '▸'}</span>
+                                    </button>
 
-                                {/* Items */}
-                                {brandOpen && items.map((item) => (
-                                  <ItemRow
-                                    key={`${item.type}-${item.name}`}
-                                    item={item}
-                                    accent={brandColor}
-                                    indent={32}
-                                  />
-                                ))}
-                              </div>
-                            );
-                          })}
+                                    {/* Items */}
+                                    {brandOpen && items.map((item) => (
+                                      <ItemRow
+                                        key={`${item.type}-${item.name}`}
+                                        item={item}
+                                        accent={brandColor}
+                                        indent={36}
+                                      />
+                                    ))}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

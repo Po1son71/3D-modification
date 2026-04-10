@@ -68,13 +68,13 @@ const FloorPlannerPage = () => {
   const {
     activeTool, activeFurnitureDef, viewMode,
     selectedIds, lockedIds, clipboard,
-    showHeatmap,
+    showHeatmap, gridSize,
     setActiveTool, setViewMode,
     undo, redo,
     lockSelected, unlockSelected,
     copySelected, pasteClipboard,
     exportLayout, importLayout, mergeLayout,
-    toggleHeatmap,
+    toggleHeatmap, cycleGridSize,
     rooms, furniture,
     undoMsg,
   } = useFloorPlannerStore();
@@ -236,6 +236,21 @@ const FloorPlannerPage = () => {
               onMouseLeave={(e) => { if (!showHeatmap) e.currentTarget.style.background = 'transparent'; }}
             >
               <span>🌡</span><span>Thermal</span>
+            </button>
+
+            <button onClick={cycleGridSize} title="Cycle grid size" style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '5px 11px', borderRadius: 6,
+              border: `1px solid ${C.border}`,
+              background: 'transparent', color: C.textSub,
+              cursor: 'pointer', fontSize: 12, fontWeight: 500,
+              transition: 'all 0.1s',
+            }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = C.toolHover; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <span>⊞</span>
+              <span>Grid {gridSize < 0.1 ? `${gridSize * 100 | 0}cm` : gridSize < 1 ? `${gridSize * 100 | 0}cm` : '1m'}</span>
             </button>
           </div>
         )}

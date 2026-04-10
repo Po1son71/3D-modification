@@ -213,6 +213,48 @@ export function getWallEndpoints(room, wall) {
   }
 }
 
+// Returns virtual door entries (offset/width) for doors from ADJACENT rooms that
+// share this wall face — so both rooms show the same gap at a shared edge.
+export function getSharedWallDoors(room, wall, doors, rooms) {
+  const TOL = 0.12; // metres — max gap between coincident wall faces
+  const { x, y, width: rw, height: rh } = room;
+  const opposites = { east: 'west', west: 'east', north: 'south', south: 'north' };
+  const oppWall = opposites[wall];
+
+  // Coordinate of our wall face and the axis-start (used to map offsets)
+  let ourFace, ourAxisStart;
+  if (wall === 'east')  { ourFace = x + rw;  ourAxisStart = y; }
+  if (wall === 'west')  { ourFace = x;        ourAxisStart = y; }
+  if (wall === 'north') { ourFace = y;         ourAxisStart = x; }
+  if (wall === 'south') { ourFace = y + rh;    ourAxisStart = x; }
+
+  const ourLen = (wall === 'north' || wall === 'south') ? rw : rh;
+  const result = [];
+
+  for (const other of rooms) {
+    if (other.id === room.id) continue;
+
+    let otherFace, otherAxisStart;
+    if (oppWall === 'east')  { otherFace = other.x + other.width;  otherAxisStart = other.y; }
+    if (oppWall === 'west')  { otherFace = other.x;                 otherAxisStart = other.y; }
+    if (oppWall === 'north') { otherFace = other.y;                  otherAxisStart = other.x; }
+    if (oppWall === 'south') { otherFace = other.y + other.height;   otherAxisStart = other.x; }
+
+    if (Math.abs(ourFace - otherFace) > TOL) continue;
+
+    // Found adjacent room sharing this wall. Get its doors on the opposing side.
+    for (const d of doors) {
+      if (d.roomId !== other.id || d.wall !== oppWall) continue;
+      const mappedOffset = d.offset + (otherAxisStart - ourAxisStart);
+      // Only include if the gap overlaps our wall length
+      if (mappedOffset + d.width > 0.001 && mappedOffset < ourLen - 0.001) {
+        result.push({ ...d, offset: mappedOffset });
+      }
+    }
+  }
+  return result;
+}
+
 export function getWallInward(wall) {
   switch (wall) {
     case 'north': return { x: 0, y: 1 };
@@ -284,11 +326,13 @@ const useFloorPlannerStore = create((set, get) => ({
   lockedIds:          [],   // array of locked IDs
   groups:             [],   // [{ id, name, itemIds[] }]
   clipboard:          [],   // copied items: [{ kind: 'room'|'furniture', data }]
+  clipboardGroup:     null, // group name if the clipboard came from a group
   pasteCount:         0,    // increments each paste so repeated pastes stack
   activeTool:         'select',
   activeFurnitureDef: null,
   viewMode:           '2d',
   showHeatmap:        false,
+  gridSize:           0.05, // metres — 0.05 | 0.1 | 0.25
   undoMsg:            null, // { text, ts } — used for toast notifications
   editorCamera:       null, // { scale, offsetX, offsetY } — persists 2D pan/zoom across view switches
 
@@ -346,6 +390,12 @@ const useFloorPlannerStore = create((set, get) => ({
   setActiveFurnitureDef: (def)  => set({ activeFurnitureDef: def, activeTool: 'furniture' }),
   setViewMode:           (mode) => set({ viewMode: mode }),
   toggleHeatmap:         ()     => set((state) => ({ showHeatmap: !state.showHeatmap })),
+  cycleGridSize:         ()     => set((state) => {
+    const steps = [0.05, 0.1, 0.25];
+    const idx = steps.findIndex((s) => Math.abs(s - state.gridSize) < 0.001);
+    const next = steps[(idx + 1) % steps.length];
+    return { gridSize: next };
+  }),
 
   // ── Selection ──────────────────────────────────────────────────────────────
   // Select exactly one item (or clear if null)
@@ -514,7 +564,7 @@ const useFloorPlannerStore = create((set, get) => ({
 
   // ── Clipboard ──────────────────────────────────────────────────────────────
   copySelected: () => {
-    const { selectedIds, rooms, furniture } = get();
+    const { selectedIds, rooms, furniture, groups } = get();
     if (!selectedIds.length) return;
     const items = [];
     for (const id of selectedIds) {
@@ -523,14 +573,18 @@ const useFloorPlannerStore = create((set, get) => ({
       if (r) items.push({ kind: 'room', data: { ...r } });
       else if (f) items.push({ kind: 'furniture', data: { ...f } });
     }
-    if (items.length) {
-      set({ clipboard: items, pasteCount: 0 });
-      get()._showMsg(`Copied ${items.length} item${items.length > 1 ? 's' : ''}`);
-    }
+    if (!items.length) return;
+    // Detect if the entire selection came from a single group
+    const sourceGroup = groups.find(
+      (g) => selectedIds.every((id) => g.itemIds.includes(id)) &&
+             g.itemIds.every((id) => selectedIds.includes(id))
+    );
+    set({ clipboard: items, clipboardGroup: sourceGroup ? sourceGroup.name : null, pasteCount: 0 });
+    get()._showMsg(`Copied ${items.length} item${items.length > 1 ? 's' : ''}${sourceGroup ? ' (group)' : ''}`);
   },
 
   pasteClipboard: () => {
-    const { clipboard, pasteCount } = get();
+    const { clipboard, clipboardGroup, pasteCount } = get();
     if (!clipboard.length) return;
     get()._pushHistory();
     const off = (pasteCount + 1) * 1; // each repeated paste shifts +1 m
@@ -560,14 +614,23 @@ const useFloorPlannerStore = create((set, get) => ({
           });
         }
       }
+      // Re-create the group if the clipboard came from a group
+      const newGroups = clipboardGroup
+        ? [...state.groups, {
+            id:      `group-${uid()}`,
+            name:    clipboardGroup + ' (copy)',
+            itemIds: newIds,
+          }]
+        : state.groups;
       return {
         rooms:      newRooms,
         furniture:  newFurniture,
+        groups:     newGroups,
         selectedIds: newIds,
         pasteCount:  pasteCount + 1,
       };
     });
-    get()._showMsg(`Pasted ${stamped.length} item${stamped.length > 1 ? 's' : ''}`);
+    get()._showMsg(`Pasted ${stamped.length} item${stamped.length > 1 ? 's' : ''}${clipboardGroup ? ' (group)' : ''}`);
   },
 
   // ── Groups ────────────────────────────────────────────────────────────────

@@ -34,7 +34,7 @@ function makeTileTexture(baseColor = '#F0EDE8', groutColor = '#CCCAC5', tileSize
   tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
-import useFloorPlannerStore, { getDoorInfo } from '../../store/floorPlannerStore';
+import useFloorPlannerStore, { getDoorInfo, getSharedWallDoors } from '../../store/floorPlannerStore';
 
 const WALL_H     = 1.8;
 const DOOR_H     = 2.1;
@@ -160,7 +160,7 @@ const FurnitureMesh = React.memo(({ item }) => {
 });
 
 // ── Room: floor + ceiling + 4 walls with door cutouts ────────────────────────
-const RoomMesh = React.memo(({ room, roomDoors }) => {
+const RoomMesh = React.memo(({ room, roomDoors, allRooms, allDoors }) => {
   const {
     x, y, width: w, height: h,
     floorColor, wallColor = '#4A4A4A',
@@ -190,10 +190,11 @@ const RoomMesh = React.memo(({ room, roomDoors }) => {
     };
 
     for (const [wallName, wd] of Object.entries(wallDefs)) {
+      if ((room.hiddenWalls || []).includes(wallName)) continue;
       const L = wd.L;
-      const sorted = (roomDoors || [])
-        .filter((d) => d.wall === wallName)
-        .sort((a, b) => a.offset - b.offset);
+      const ownDoors    = (roomDoors || []).filter((d) => d.wall === wallName);
+      const sharedDoors = getSharedWallDoors(room, wallName, allDoors || [], allRooms || []);
+      const sorted = [...ownDoors, ...sharedDoors].sort((a, b) => a.offset - b.offset);
 
       const gaps = sorted.map((d) => ({
         t0: Math.max(0, d.offset / L),
@@ -217,7 +218,7 @@ const RoomMesh = React.memo(({ room, roomDoors }) => {
       }
     }
     return segments;
-  }, [room, roomDoors, wallH, doorH]);
+  }, [room, roomDoors, wallH, doorH, allRooms, allDoors]);
 
   return (
     <group>
@@ -227,11 +228,13 @@ const RoomMesh = React.memo(({ room, roomDoors }) => {
         <meshStandardMaterial map={tileTex} roughness={0.75} />
       </mesh>
 
-      {/* Ceiling */}
-      <mesh position={[x + w / 2, wallH + CEIL_THICK / 2, y + h / 2]}>
-        <boxGeometry args={[w + wt, CEIL_THICK, h + wt]} />
-        <meshStandardMaterial color={wallColor} opacity={0.12} transparent />
-      </mesh>
+      {/* Ceiling — hidden when any walls are removed (open side would be visible) */}
+      {!(room.hiddenWalls && room.hiddenWalls.length > 0) && (
+        <mesh position={[x + w / 2, wallH + CEIL_THICK / 2, y + h / 2]}>
+          <boxGeometry args={[w + wt, CEIL_THICK, h + wt]} />
+          <meshStandardMaterial color={wallColor} opacity={0.12} transparent />
+        </mesh>
+      )}
 
       {/* Wall segments */}
       {wallSegments.map((seg, i) => {
@@ -478,7 +481,7 @@ const FloorPlan3DScene = () => {
           {!hasContent && <EmptyState />}
 
           {rooms.map((room) => (
-            <RoomMesh key={room.id} room={room} roomDoors={doorsByRoom[room.id] || []} />
+            <RoomMesh key={room.id} room={room} roomDoors={doorsByRoom[room.id] || []} allRooms={rooms} allDoors={doors} />
           ))}
 
           {doors.map((door) => {

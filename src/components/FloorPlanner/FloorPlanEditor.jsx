@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom';
 import useFloorPlannerStore, {
   getWallEndpoints,
   getDoorInfo,
+  getSharedWallDoors,
 } from '../../store/floorPlannerStore';
 
 const PPM  = 60;    // pixels per meter at scale = 1
-const SNAP = 0.25;  // snap grid in meters
+const SNAP = 0.05;  // snap grid in meters (5 cm)
 const DEFAULT_DOOR_WIDTH = 0.9;
 
 const snapVal = (v) => Math.round(v / SNAP) * SNAP;
@@ -94,6 +95,69 @@ function findNearestWall(wx, wy, rooms, maxDist = 1.2) {
     }
   }
   return best;
+}
+
+// ── Room-to-room edge snap ────────────────────────────────────────────────────
+// Returns the snapped {x, y} and alignment guides when dragging/drawing a room.
+// Snaps edges and corners to other rooms within ROOM_SNAP_DIST metres.
+const ROOM_SNAP_DIST = 0.2; // metres — how close an edge must be before it snaps
+
+function snapRoomPosition(rx, ry, rw, rh, rooms, excludeId) {
+  // Candidate edges of the moving room (world coords)
+  const edges = {
+    left:   rx,
+    right:  rx + rw,
+    top:    ry,
+    bottom: ry + rh,
+    centerX: rx + rw / 2,
+    centerY: ry + rh / 2,
+  };
+
+  let bestX = null, bestXDist = ROOM_SNAP_DIST;
+  let bestY = null, bestYDist = ROOM_SNAP_DIST;
+
+  for (const r of rooms) {
+    if (r.id === excludeId) continue;
+    const targets = {
+      xVals: [r.x, r.x + r.width, r.x + r.width / 2],
+      yVals: [r.y, r.y + r.height, r.y + r.height / 2],
+    };
+
+    // X-axis snaps: each edge of moving room vs each edge of target
+    const myXEdges   = [edges.left, edges.right, edges.centerX];
+    for (const myE of myXEdges) {
+      for (const tE of targets.xVals) {
+        const d = Math.abs(myE - tE);
+        if (d < bestXDist) {
+          bestXDist = d;
+          // Shift rx so that myE aligns to tE
+          bestX = { snapVal: tE, delta: tE - myE, kind: 'edge' };
+        }
+      }
+    }
+
+    // Y-axis snaps
+    const myYEdges = [edges.top, edges.bottom, edges.centerY];
+    for (const myE of myYEdges) {
+      for (const tE of targets.yVals) {
+        const d = Math.abs(myE - tE);
+        if (d < bestYDist) {
+          bestYDist = d;
+          bestY = { snapVal: tE, delta: tE - myE, kind: 'edge' };
+        }
+      }
+    }
+  }
+
+  const nx = bestX ? rx + bestX.delta : snapVal(rx);
+  const ny = bestY ? ry + bestY.delta : snapVal(ry);
+
+  // Build alignment guides
+  const guides = [];
+  if (bestX) guides.push({ axis: 'x', value: bestX.snapVal });
+  if (bestY) guides.push({ axis: 'y', value: bestY.snapVal });
+
+  return { x: nx, y: ny, guides, snappedX: !!bestX, snappedY: !!bestY };
 }
 
 // ── Wall endpoint snap ────────────────────────────────────────────────────────
@@ -325,6 +389,7 @@ const FloorPlanEditor = () => {
   const hoverHandleRef  = useRef(null);    // handle corner/edge key the mouse is hovering ('nw', 'n', …)
   const hoverGroupRef   = useRef(false);   // true when mouse is over empty area inside a group rect
   const hoverWallEpRef  = useRef(false);   // true when hovering over a wall endpoint
+  const alignGuidesRef  = useRef([]);      // alignment guides: [{ axis:'x'|'y', value, kind }]
   const [renderTick, forceRender] = useState(0);
 
   scaleRef.current  = scale;
@@ -339,7 +404,7 @@ const FloorPlanEditor = () => {
     rooms, furniture, doors, walls, groups,
     selectedIds, lockedIds,
     activeTool, activeFurnitureDef,
-    showHeatmap,
+    showHeatmap, gridSize,
     editorCamera, setEditorCamera,
     addRoom, updateRoom,
     addFurniture, updateFurniture,
@@ -443,6 +508,7 @@ const FloorPlanEditor = () => {
 
         useFloorPlannerStore.getState()._pushHistory();
 
+        const { walls: ws2 } = useFloorPlannerStore.getState();
         for (const id of ids) {
           if (locked.includes(id)) continue;
           const room = rs.find((r) => r.id === id);
@@ -452,13 +518,26 @@ const FloorPlanEditor = () => {
           // Doors: slide along their wall axis
           const door = ds.find((d) => d.id === id);
           if (door) {
-            const room2 = rs.find((r) => r.id === door.roomId);
-            if (!room2) continue;
-            const isHoriz = door.wall === 'north' || door.wall === 'south';
-            const wallLen = isHoriz ? room2.width : room2.height;
-            const delta   = isHoriz ? dx : dy;
-            const newOff  = Math.max(0, Math.min(wallLen - door.width, door.offset + delta));
-            updateDoor(id, { offset: newOff });
+            if (door.roomId) {
+              // Room door — slide along wall direction
+              const room2 = rs.find((r) => r.id === door.roomId);
+              if (!room2) continue;
+              const isHoriz = door.wall === 'north' || door.wall === 'south';
+              const wallLen = isHoriz ? room2.width : room2.height;
+              const delta   = isHoriz ? dx : dy;
+              const newOff  = Math.max(0, Math.min(wallLen - door.width, door.offset + delta));
+              updateDoor(id, { offset: newOff });
+            } else if (door.wallId) {
+              // FW wall door — project arrow delta onto wall direction
+              const fw = ws2 && ws2.find((w) => w.id === door.wallId);
+              if (!fw) continue;
+              const fwLen = Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1);
+              if (fwLen < 0.01) continue;
+              const dirX = (fw.x2 - fw.x1) / fwLen, dirY = (fw.y2 - fw.y1) / fwLen;
+              const proj  = dx * dirX + dy * dirY;
+              const newOff = Math.max(0, Math.min(fwLen - door.width, door.offset + proj));
+              updateDoor(id, { offset: newOff });
+            }
           }
         }
       }
@@ -593,6 +672,80 @@ const FloorPlanEditor = () => {
       }
     }
 
+    // Alignment guides (room-to-room snap lines)
+    const guides = alignGuidesRef.current;
+    if (guides && guides.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#00BCD4';
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([4, 4]);
+      for (const g of guides) {
+        if (g.axis === 'x') {
+          const sx2 = toScreen(g.value, 0).x;
+          ctx.beginPath(); ctx.moveTo(sx2, 0); ctx.lineTo(sx2, height); ctx.stroke();
+        } else {
+          const sy2 = toScreen(0, g.value).y;
+          ctx.beginPath(); ctx.moveTo(0, sy2); ctx.lineTo(width, sy2); ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // Multi-select bounding box + resize handles
+    if (selectedIds.length > 1) {
+      const bbox = getMultiSelectBBox();
+      if (bbox) {
+        const sp1 = toScreen(bbox.x1, bbox.y1);
+        const sp2 = toScreen(bbox.x2, bbox.y2);
+        const mw = sp2.x - sp1.x, mh = sp2.y - sp1.y;
+        const hov = hoverHandleRef.current;
+        // Dashed bounding rect
+        ctx.strokeStyle = '#1976D2';
+        ctx.lineWidth   = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(sp1.x, sp1.y, mw, mh);
+        ctx.setLineDash([]);
+        // Corner + edge handles (reuse same style as single-item)
+        const handles = [
+          { key: 'nw', cx: sp1.x,       cy: sp1.y },
+          { key: 'ne', cx: sp2.x,       cy: sp1.y },
+          { key: 'se', cx: sp2.x,       cy: sp2.y },
+          { key: 'sw', cx: sp1.x,       cy: sp2.y },
+          { key: 'n',  cx: sp1.x+mw/2,  cy: sp1.y },
+          { key: 's',  cx: sp1.x+mw/2,  cy: sp2.y },
+          { key: 'w',  cx: sp1.x,       cy: sp1.y+mh/2 },
+          { key: 'e',  cx: sp2.x,       cy: sp1.y+mh/2 },
+        ];
+        const corners = ['nw','ne','se','sw'];
+        for (const { key, cx, cy } of handles) {
+          const isHot = hov === key;
+          if (corners.includes(key)) {
+            const hs = HANDLE_CORNER;
+            ctx.shadowColor = 'rgba(0,0,0,0.22)'; ctx.shadowBlur = isHot ? 6 : 3;
+            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
+            ctx.beginPath();
+            ctx.roundRect?.(cx-hs, cy-hs, hs*2, hs*2, 3) || ctx.rect(cx-hs, cy-hs, hs*2, hs*2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 2;
+            ctx.beginPath();
+            ctx.roundRect?.(cx-hs, cy-hs, hs*2, hs*2, 3) || ctx.rect(cx-hs, cy-hs, hs*2, hs*2);
+            ctx.stroke();
+          } else {
+            const r = HANDLE_EDGE;
+            ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = isHot ? 5 : 2;
+            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
+            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 1.5;
+            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+          }
+        }
+        ctx.shadowBlur = 0;
+      }
+    }
+
     // Wall snap indicator — orange ring + crosshair at snap point
     const ws = wallSnapRef.current;
     if (ws && (activeTool === 'wall' || dragRef.current?.type === 'wall-ep' || dragRef.current?.type === 'wall')) {
@@ -630,8 +783,39 @@ const FloorPlanEditor = () => {
       ctx.strokeRect(minSX, minSY, bsW, bsH);
       ctx.setLineDash([]);
     }
+
+    // North compass — fixed top-right corner
+    {
+      const cx = width - 28, cy = 36, r = 16;
+      ctx.save();
+      // Outer ring
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 1;
+      ctx.stroke();
+      // Arrow pointing up (north)
+      ctx.fillStyle = '#EF4444';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r + 3);
+      ctx.lineTo(cx - 4, cy + 2);
+      ctx.lineTo(cx, cy - 1);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#94A3B8';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + r - 3);
+      ctx.lineTo(cx + 4, cy - 2);
+      ctx.lineTo(cx, cy + 1);
+      ctx.closePath(); ctx.fill();
+      // N label
+      ctx.fillStyle = '#EF4444';
+      ctx.font = `bold ${Math.max(8, 9 * scale)}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('N', cx, cy - r - 7);
+      ctx.restore();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rooms, furniture, doors, walls, groups, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, renderTick]);
+  }, [rooms, furniture, doors, walls, groups, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick]);
 
   // ── Group outline ─────────────────────────────────────────────────────────
   const drawGroupOutline = (ctx, group) => {
@@ -811,26 +995,52 @@ const FloorPlanEditor = () => {
   const drawGrid = (ctx, width, height) => {
     const sc  = scaleRef.current;
     const off = offsetRef.current;
+    const gs  = gridSize || 0.05; // active snap size in metres
 
-    const minorStep = SNAP * PPM * sc;
-    if (minorStep > 6) {
-      ctx.strokeStyle = 'rgba(0,0,0,0.07)'; ctx.lineWidth = 0.5;
-      const sx0 = ((off.x % minorStep) + minorStep) % minorStep;
-      const sy0 = ((off.y % minorStep) + minorStep) % minorStep;
-      for (let x = sx0; x < width; x += minorStep) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
-      for (let y = sy0; y < height; y += minorStep) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
-    }
+    const drawLines = (stepM, color, lw) => {
+      const stepPx = stepM * PPM * sc;
+      if (stepPx < 4) return; // too dense to draw
+      ctx.strokeStyle = color; ctx.lineWidth = lw;
+      const ox = ((off.x % stepPx) + stepPx) % stepPx;
+      const oy = ((off.y % stepPx) + stepPx) % stepPx;
+      for (let x = ox; x < width; x += stepPx)  { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+      for (let y = oy; y < height; y += stepPx)  { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y);  ctx.stroke(); }
+    };
 
-    const majorStep = PPM * sc;
-    ctx.strokeStyle = 'rgba(0,0,0,0.14)'; ctx.lineWidth = 1;
-    const mx0 = ((off.x % majorStep) + majorStep) % majorStep;
-    const my0 = ((off.y % majorStep) + majorStep) % majorStep;
-    for (let x = mx0; x < width; x += majorStep) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
-    for (let y = my0; y < height; y += majorStep) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+    // Tier 1 — active snap grid (e.g. 5 cm), very faint, only when zoomed in
+    drawLines(gs,    'rgba(0,0,0,0.055)', 0.5);
+    // Tier 2 — quarter-metre lines, slightly stronger
+    drawLines(0.25,  'rgba(0,0,0,0.10)',  0.5);
+    // Tier 3 — 1 m lines, visible at all zoom levels
+    drawLines(1.0,   'rgba(0,0,0,0.18)',  1.0);
 
+    // Origin axes
     ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 1.5;
     if (off.x > 0 && off.x < width)  { ctx.beginPath(); ctx.moveTo(off.x, 0); ctx.lineTo(off.x, height); ctx.stroke(); }
     if (off.y > 0 && off.y < height) { ctx.beginPath(); ctx.moveTo(0, off.y); ctx.lineTo(width, off.y);  ctx.stroke(); }
+
+    // ── Scale bar (bottom-left, just above compass area) ──────────────────
+    // Pick a round bar length: 1, 2, or 5 m, whichever gives ~80-140 px wide
+    const candidates = [0.5, 1, 2, 5, 10];
+    let barM = 1;
+    for (const c of candidates) {
+      barM = c;
+      if (c * PPM * sc >= 80) break;
+    }
+    const barPx = barM * PPM * sc;
+    const bx = 18, by = height - 20;
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.fillRect(bx - 4, by - 14, barPx + 8, 20);
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(bx, by - 5); ctx.lineTo(bx, by);          // left tick
+    ctx.lineTo(bx + barPx, by);                           // bar
+    ctx.lineTo(bx + barPx, by - 5);                       // right tick
+    ctx.stroke();
+    ctx.fillStyle = '#333';
+    ctx.font = `bold ${Math.max(9, 10 * sc)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(barM < 1 ? `${barM * 100 | 0}cm` : `${barM}m`, bx + barPx / 2, by - 1);
   };
 
   // Handle sizes — larger = easier to grab
@@ -930,13 +1140,14 @@ const FloorPlanEditor = () => {
     const roomDoors = doors.filter((d) => d.roomId === room.id);
 
     for (const wall of ['north', 'south', 'east', 'west']) {
+      if ((room.hiddenWalls || []).includes(wall)) continue;
       const { start, end, len } = getWallEndpoints(room, wall);
       const sp1 = toScreen(start.x, start.y);
       const sp2 = toScreen(end.x, end.y);
 
-      const wallDoors = roomDoors
-        .filter((d) => d.wall === wall)
-        .sort((a, b) => a.offset - b.offset);
+      const ownDoors    = roomDoors.filter((d) => d.wall === wall);
+      const sharedDoors = getSharedWallDoors(room, wall, doors, rooms);
+      const wallDoors   = [...ownDoors, ...sharedDoors].sort((a, b) => a.offset - b.offset);
 
       ctx.strokeStyle = wallColor;
       ctx.lineWidth   = wt;
@@ -1341,6 +1552,99 @@ const FloorPlanEditor = () => {
     else             updateFurniture(selectedId, { x: nx, y: ny, width: nw, depth: nh });
   };
 
+  // ── Bounding box of all selected non-locked items (world coords) ─────────
+  const getMultiSelectBBox = () => {
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity, hasAny = false;
+    for (const id of selectedIds) {
+      if (lockedIds.includes(id)) continue;
+      const r = rooms.find((x) => x.id === id);
+      const f = furniture.find((x) => x.id === id);
+      const w = walls && walls.find((x) => x.id === id);
+      if (r) {
+        x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y);
+        x2 = Math.max(x2, r.x + r.width); y2 = Math.max(y2, r.y + r.height); hasAny = true;
+      } else if (f) {
+        x1 = Math.min(x1, f.x); y1 = Math.min(y1, f.y);
+        x2 = Math.max(x2, f.x + f.width); y2 = Math.max(y2, f.y + f.depth); hasAny = true;
+      } else if (w) {
+        x1 = Math.min(x1, Math.min(w.x1, w.x2)); y1 = Math.min(y1, Math.min(w.y1, w.y2));
+        x2 = Math.max(x2, Math.max(w.x1, w.x2)); y2 = Math.max(y2, Math.max(w.y1, w.y2)); hasAny = true;
+      }
+    }
+    return hasAny ? { x1, y1, x2, y2 } : null;
+  };
+
+  // ── Multi-select resize handle hit test ──────────────────────────────────
+  const getMultiHandleAtScreen = (sx, sy) => {
+    if (selectedIds.length < 2) return null;
+    const bbox = getMultiSelectBBox();
+    if (!bbox) return null;
+    const sp1 = toScreen(bbox.x1, bbox.y1);
+    const sp2 = toScreen(bbox.x2, bbox.y2);
+    const mw = sp2.x - sp1.x, mh = sp2.y - sp1.y;
+    const t = HANDLE_TOL;
+    const handles = [
+      { key: 'nw', hx: sp1.x,          hy: sp1.y },
+      { key: 'ne', hx: sp2.x,          hy: sp1.y },
+      { key: 'se', hx: sp2.x,          hy: sp2.y },
+      { key: 'sw', hx: sp1.x,          hy: sp2.y },
+      { key: 'n',  hx: sp1.x + mw / 2, hy: sp1.y },
+      { key: 's',  hx: sp1.x + mw / 2, hy: sp2.y },
+      { key: 'w',  hx: sp1.x,          hy: sp1.y + mh / 2 },
+      { key: 'e',  hx: sp2.x,          hy: sp1.y + mh / 2 },
+    ];
+    let best = null, bestDist = Infinity;
+    for (const h of handles) {
+      const d = Math.hypot(sx - h.hx, sy - h.hy);
+      if (d < t && d < bestDist) { bestDist = d; best = { ...h, bbox }; }
+    }
+    return best;
+  };
+
+  // ── Apply multi-select resize ─────────────────────────────────────────────
+  const applyMultiResize = (drag, wx, wy) => {
+    const { key, origBBox, origItems } = drag;
+    const { x1: ox1, y1: oy1, x2: ox2, y2: oy2 } = origBBox;
+    const origW = ox2 - ox1, origH = oy2 - oy1;
+    const sw = snapVal(wx), sy2 = snapVal(wy);
+
+    let nx1 = ox1, ny1 = oy1, nx2 = ox2, ny2 = oy2;
+    switch (key) {
+      case 'nw': nx1 = Math.min(sw,  ox2 - SNAP); ny1 = Math.min(sy2, oy2 - SNAP); break;
+      case 'ne': nx2 = Math.max(sw,  ox1 + SNAP); ny1 = Math.min(sy2, oy2 - SNAP); break;
+      case 'se': nx2 = Math.max(sw,  ox1 + SNAP); ny2 = Math.max(sy2, oy1 + SNAP); break;
+      case 'sw': nx1 = Math.min(sw,  ox2 - SNAP); ny2 = Math.max(sy2, oy1 + SNAP); break;
+      case 'n':  ny1 = Math.min(sy2, oy2 - SNAP); break;
+      case 's':  ny2 = Math.max(sy2, oy1 + SNAP); break;
+      case 'w':  nx1 = Math.min(sw,  ox2 - SNAP); break;
+      case 'e':  nx2 = Math.max(sw,  ox1 + SNAP); break;
+    }
+    const scaleX = origW > 0.001 ? (nx2 - nx1) / origW : 1;
+    const scaleY = origH > 0.001 ? (ny2 - ny1) / origH : 1;
+
+    for (const orig of origItems) {
+      const { id } = orig;
+      if (orig.type === 'room') {
+        const nw = Math.max(SNAP, orig.width  * scaleX);
+        const nh = Math.max(SNAP, orig.height * scaleY);
+        const ncx = nx1 + (orig.x + orig.width  / 2 - ox1) * scaleX;
+        const ncy = ny1 + (orig.y + orig.height / 2 - oy1) * scaleY;
+        updateRoom(id, { x: ncx - nw / 2, y: ncy - nh / 2, width: nw, height: nh });
+      } else if (orig.type === 'furniture') {
+        const nw = Math.max(SNAP, orig.width * scaleX);
+        const nd = Math.max(SNAP, orig.depth * scaleY);
+        const ncx = nx1 + (orig.x + orig.width / 2 - ox1) * scaleX;
+        const ncy = ny1 + (orig.y + orig.depth / 2 - oy1) * scaleY;
+        updateFurniture(id, { x: ncx - nw / 2, y: ncy - nd / 2, width: nw, depth: nd });
+      } else if (orig.type === 'wall') {
+        updateWall(id, {
+          x1: nx1 + (orig.x1 - ox1) * scaleX, y1: ny1 + (orig.y1 - oy1) * scaleY,
+          x2: nx1 + (orig.x2 - ox1) * scaleX, y2: ny1 + (orig.y2 - oy1) * scaleY,
+        });
+      }
+    }
+  };
+
   const checkDoorHit = (wx, wy) => {
     const tol = 0.25;
     for (const door of doors) {
@@ -1447,6 +1751,28 @@ const FloorPlanEditor = () => {
         return;
       }
 
+      // ── Multi-select resize handle check ──────────────────────────────
+      if (selectedIds.length > 1) {
+        const mHit = getMultiHandleAtScreen(sx, sy);
+        if (mHit) {
+          useFloorPlannerStore.getState()._pushHistory();
+          const origItems = selectedIds
+            .filter((id) => !lockedIds.includes(id))
+            .map((id) => {
+              const r = rooms.find((x) => x.id === id);
+              const f = furniture.find((x) => x.id === id);
+              const w = walls && walls.find((x) => x.id === id);
+              if (r) return { id, type: 'room',      x: r.x,  y: r.y,  width: r.width,  height: r.height };
+              if (f) return { id, type: 'furniture', x: f.x,  y: f.y,  width: f.width,  depth: f.depth };
+              if (w) return { id, type: 'wall',      x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 };
+              return null;
+            })
+            .filter(Boolean);
+          dragRef.current = { type: 'multi-resize', key: mHit.key, origBBox: mHit.bbox, origItems, startWX: wx, startWY: wy };
+          return;
+        }
+      }
+
       // ── Resize handle check (screen-space, only single selection) ──
       const handleHit = getHandleAtScreen(sx, sy);
       if (handleHit) {
@@ -1507,6 +1833,7 @@ const FloorPlanEditor = () => {
             const r2 = storeState.rooms.find((x) => x.id === id);
             if (f2) origins[id] = { x: f2.x, y: f2.y, kind: 'furniture' };
             else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room' };
+            else { const w2 = storeState.walls && storeState.walls.find((x) => x.id === id); if (w2) origins[id] = { x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2, kind: 'wall' }; }
           }
           dragRef.current = { type: 'multi', origins, startWX: wx, startWY: wy };
         }
@@ -1612,6 +1939,7 @@ const FloorPlanEditor = () => {
             const r2 = storeState.rooms.find((x) => x.id === id);
             if (f2) origins[id] = { x: f2.x, y: f2.y, kind: 'furniture' };
             else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room' };
+            else { const w2 = storeState.walls && storeState.walls.find((x) => x.id === id); if (w2) origins[id] = { x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2, kind: 'wall' }; }
           }
           dragRef.current = { type: 'multi', origins, startWX: wx, startWY: wy };
         }
@@ -1718,11 +2046,30 @@ const FloorPlanEditor = () => {
         if (d.endpoint === 1) updateWall(d.id, { x1: nx, y1: ny });
         else                   updateWall(d.id, { x2: nx, y2: ny });
       } else if (d.type === 'multi') {
-        for (const [id, orig] of Object.entries(d.origins)) {
-          const nx = snapVal(orig.x + dx), ny = snapVal(orig.y + dy);
-          if (orig.kind === 'furniture') updateFurniture(id, { x: nx, y: ny });
-          else if (orig.kind === 'room')  updateRoom(id, { x: nx, y: ny });
+        const newGuides = [];
+        // Single room drag gets room-to-room snap
+        const singleRoomId = Object.keys(d.origins).length === 1 && d.origins[Object.keys(d.origins)[0]].kind === 'room'
+          ? Object.keys(d.origins)[0] : null;
+
+        if (singleRoomId) {
+          const orig = d.origins[singleRoomId];
+          const r = rooms.find((x) => x.id === singleRoomId);
+          if (r) {
+            const candX = orig.x + dx, candY = orig.y + dy;
+            const snap = snapRoomPosition(candX, candY, r.width, r.height, rooms, singleRoomId);
+            updateRoom(singleRoomId, { x: snap.x, y: snap.y });
+            newGuides.push(...snap.guides);
+          }
+        } else {
+          for (const [id, orig] of Object.entries(d.origins)) {
+            if (orig.kind === 'furniture') updateFurniture(id, { x: snapVal(orig.x + dx), y: snapVal(orig.y + dy) });
+            else if (orig.kind === 'room') updateRoom(id, { x: snapVal(orig.x + dx), y: snapVal(orig.y + dy) });
+            else if (orig.kind === 'wall') updateWall(id, { x1: snapVal(orig.x1 + dx), y1: snapVal(orig.y1 + dy), x2: snapVal(orig.x2 + dx), y2: snapVal(orig.y2 + dy) });
+          }
         }
+        alignGuidesRef.current = newGuides;
+      } else if (d.type === 'multi-resize') {
+        applyMultiResize(d, wx, wy);
       } else if (d.type === 'resize') {
         applyResize(d, wx, wy);
       } else if (d.type === 'door') {
@@ -1753,8 +2100,29 @@ const FloorPlanEditor = () => {
     }
 
     if (drawRef.current) {
-      const { x, y } = snapPt(wx, wy);
-      drawRef.current = { ...drawRef.current, curX: x, curY: y };
+      // Snap cursor to room edges while drawing a new room
+      const ds = drawRef.current;
+      let { x, y } = snapPt(wx, wy);
+      const newGuides = [];
+      for (const r of rooms) {
+        // X edges
+        for (const ex of [r.x, r.x + r.width]) {
+          if (Math.abs(wx - ex) < ROOM_SNAP_DIST) { x = ex; newGuides.push({ axis: 'x', value: ex }); break; }
+        }
+        // Y edges
+        for (const ey of [r.y, r.y + r.height]) {
+          if (Math.abs(wy - ey) < ROOM_SNAP_DIST) { y = ey; newGuides.push({ axis: 'y', value: ey }); break; }
+        }
+        // Also snap startX/startY to these edges
+        for (const ex of [r.x, r.x + r.width]) {
+          if (Math.abs(ds.startX - ex) < ROOM_SNAP_DIST) newGuides.push({ axis: 'x', value: ex });
+        }
+        for (const ey of [r.y, r.y + r.height]) {
+          if (Math.abs(ds.startY - ey) < ROOM_SNAP_DIST) newGuides.push({ axis: 'y', value: ey });
+        }
+      }
+      alignGuidesRef.current = newGuides;
+      drawRef.current = { ...ds, curX: x, curY: y };
       forceRender((n) => n + 1);
     }
 
@@ -1804,8 +2172,9 @@ const FloorPlanEditor = () => {
 
     // Update hover handle + group hover for cursor
     if (activeTool === 'select' && !dragRef.current && !panRef.current) {
-      const hit = getHandleAtScreen(sx, sy);
-      const key = hit?.key ?? null;
+      const hit  = getHandleAtScreen(sx, sy);
+      const mHit = selectedIds.length > 1 ? getMultiHandleAtScreen(sx, sy) : null;
+      const key  = hit?.key ?? mHit?.key ?? null;
       if (key !== hoverHandleRef.current) {
         hoverHandleRef.current = key;
         forceRender((n) => n + 1);
@@ -1842,6 +2211,7 @@ const FloorPlanEditor = () => {
     if (dragRef.current) {
       dragRef.current = null;
       wallSnapRef.current = null;
+      alignGuidesRef.current = [];
       return;
     }
 
@@ -1855,10 +2225,20 @@ const FloorPlanEditor = () => {
       const bsH = Math.abs(bs.curSY - bs.startSY);
       if (bsW > 4 && bsH > 4) {
         const inBox = (x, y, w, h) => x < w2.x && x + w > w1.x && y < w2.y && y + h > w1.y;
+        // Check if any point of a wall segment is inside the box
+        const wallInBox = (wx1, wy1, wx2, wy2) => {
+          if (wx1 >= w1.x && wx1 <= w2.x && wy1 >= w1.y && wy1 <= w2.y) return true;
+          if (wx2 >= w1.x && wx2 <= w2.x && wy2 >= w1.y && wy2 <= w2.y) return true;
+          const mx = (wx1 + wx2) / 2, my = (wy1 + wy2) / 2;
+          return mx >= w1.x && mx <= w2.x && my >= w1.y && my <= w2.y;
+        };
         const hits = [];
         for (const f of furniture) { if (inBox(f.x, f.y, f.width, f.depth)) hits.push(f.id); }
         if (!bs.noRooms) {
           for (const r of rooms) { if (inBox(r.x, r.y, r.width, r.height)) hits.push(r.id); }
+        }
+        if (walls) {
+          for (const w of walls) { if (wallInBox(w.x1, w.y1, w.x2, w.y2)) hits.push(w.id); }
         }
         if (hits.length > 0) {
           if (bs.additive) {
@@ -1892,6 +2272,7 @@ const FloorPlanEditor = () => {
         setActiveTool('select'); // auto-switch to select after placing
       }
       drawRef.current = null;
+      alignGuidesRef.current = [];
       forceRender((n) => n + 1);
     }
   };
@@ -1963,7 +2344,7 @@ const FloorPlanEditor = () => {
         {activeTool === 'wall'      && 'Click + drag to draw a wall'}
         {activeTool === 'furniture' && activeFurnitureDef && `Click to place ${activeFurnitureDef.name}`}
         {activeTool === 'door'      && 'Click on any wall to place a door'}
-        {activeTool === 'select'    && 'Click · Shift+click multi-select · Drag empty to box-select · Arrow keys nudge (0.1 m) · R rotate · Del delete · Ctrl+C/V copy · Ctrl+G group · Alt+drag pan'}
+        {activeTool === 'select'    && 'Click · Shift+click multi-select · Drag empty to box-select · Arrow keys nudge rooms/furniture/doors · R rotate · Del delete · Ctrl+C/V copy · Ctrl+G group · Alt+drag pan'}
       </div>
 
       {/* ── Right-click context menu — rendered in a portal to escape overflow:hidden ── */}

@@ -158,16 +158,21 @@ const LockBtn = ({ locked, onToggle }) => (
 // ── Main panel ────────────────────────────────────────────────────────────────
 const FloorPlanProperties = () => {
   const {
-    rooms, furniture, doors, walls,
+    rooms, furniture, doors, walls, groups,
     selectedIds, lockedIds,
     updateRoom, updateFurniture, updateDoor, updateWall,
     deleteSelected, rotateSelectedFurniture,
     toggleLock, lockSelected, unlockSelected,
-    clearSelection,
+    clearSelection, renameGroup,
   } = useFloorPlannerStore();
 
   const selectedId  = selectedIds[0] ?? null;
   const multiSelect = selectedIds.length > 1;
+
+  // Find if any selected item belongs to a group
+  const selectedGroup = groups && groups.find((g) =>
+    selectedIds.some((id) => g.itemIds.includes(id))
+  );
 
   const selectedRoom = rooms.find((r) => r.id === selectedId);
   const selectedFurn = furniture.find((f) => f.id === selectedId);
@@ -319,6 +324,24 @@ const FloorPlanProperties = () => {
           </>
         )}
 
+        {/* ── GROUP RENAME — shown whenever selection belongs to a group ── */}
+        {selectedGroup && (
+          <div style={{
+            marginBottom: 12, padding: '8px 10px', borderRadius: 6,
+            background: 'rgba(124,58,237,0.07)', border: '1px solid rgba(124,58,237,0.25)',
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#7C3AED',
+              textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>
+              ⬡ Group Name
+            </div>
+            <input
+              value={selectedGroup.name}
+              onChange={(e) => renameGroup(selectedGroup.id, e.target.value)}
+              style={{ ...inp, borderColor: 'rgba(124,58,237,0.35)', fontSize: 12 }}
+            />
+          </div>
+        )}
+
         {/* ── SINGLE ITEM ──────────────────────────────────── */}
         {!multiSelect && item && (
           <>
@@ -380,6 +403,48 @@ const FloorPlanProperties = () => {
                       value={(item.wallHeight || 1.8).toFixed(1)}
                       onChange={(e) => numChange(updateRoom, 'wallHeight', e)} style={inp} />
                   </Field>
+                </Section>
+
+                <Section label="Walls" accent="#8B5CF6">
+                  {(() => {
+                    const hidden = item.hiddenWalls || [];
+                    const toggle = (side) => {
+                      const next = hidden.includes(side)
+                        ? hidden.filter((s) => s !== side)
+                        : [...hidden, side];
+                      updateRoom(selectedId, { hiddenWalls: next });
+                    };
+                    const walls = [
+                      { key: 'north', label: 'N' },
+                      { key: 'east',  label: 'E' },
+                      { key: 'south', label: 'S' },
+                      { key: 'west',  label: 'W' },
+                    ];
+                    return (
+                      <div>
+                        <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6 }}>
+                          Toggle to show / hide individual walls
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 5 }}>
+                          {walls.map(({ key, label }) => {
+                            const isHidden = hidden.includes(key);
+                            return (
+                              <button key={key} onClick={() => toggle(key)} style={{
+                                padding: '6px 4px', borderRadius: 5, cursor: 'pointer',
+                                fontSize: 11, fontWeight: 600, border: '1px solid',
+                                borderColor: isHidden ? 'rgba(239,68,68,0.35)' : 'rgba(139,92,246,0.35)',
+                                background: isHidden ? 'rgba(239,68,68,0.08)' : 'rgba(139,92,246,0.08)',
+                                color: isHidden ? C.danger : '#8B5CF6',
+                                textDecoration: isHidden ? 'line-through' : 'none',
+                              }}>
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </Section>
               </>
             )}
