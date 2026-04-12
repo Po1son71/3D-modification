@@ -160,6 +160,116 @@ function snapRoomPosition(rx, ry, rw, rh, rooms, excludeId) {
   return { x: nx, y: ny, guides, snappedX: !!bestX, snappedY: !!bestY };
 }
 
+// ── Polygon room helpers ──────────────────────────────────────────────────────
+
+// Returns the polygon vertices for a room.
+// Rectangle rooms return the 4 corners; polygon rooms return room.polygon.
+function getRoomPolygon(room) {
+  if (room.polygon && room.polygon.length >= 3) return room.polygon;
+  return [
+    { x: room.x,             y: room.y },
+    { x: room.x + room.width, y: room.y },
+    { x: room.x + room.width, y: room.y + room.height },
+    { x: room.x,             y: room.y + room.height },
+  ];
+}
+
+// Axis-aligned bounding box of a polygon.
+function polyBoundingBox(poly) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const v of poly) {
+    if (v.x < minX) minX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y > maxY) maxY = v.y;
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+// Point-in-polygon (ray-casting).
+function ptInPolygon(px, py, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)
+      inside = !inside;
+  }
+  return inside;
+}
+
+// ── Furniture-to-wall snap ────────────────────────────────────────────────────
+// Snaps any axis-aligned edge of the furniture bounding box to the nearest room
+// wall inner face.  Only works for unrotated furniture (rotation === 0) — rotated
+// items snap to grid only.
+const FURN_WALL_SNAP = 0.25; // metres threshold
+
+function snapFurnitureToWalls(fx, fy, fw, fd, rot, rooms) {
+  if (rot) return { x: snapVal(fx), y: snapVal(fy), guides: [] }; // rotated: grid only
+
+  const edges = { left: fx, right: fx + fw, top: fy, bottom: fy + fd };
+  let bestX = null, bestXDist = FURN_WALL_SNAP;
+  let bestY = null, bestYDist = FURN_WALL_SNAP;
+  const guides = [];
+
+  for (const room of rooms) {
+    const wt = room.wallThickness || 0.15;
+    // Inner faces of room walls
+    const innerLeft   = room.x + wt;
+    const innerRight  = room.x + room.width - wt;
+    const innerTop    = room.y + wt;
+    const innerBottom = room.y + room.height - wt;
+
+    // Also outer faces (for placing against exterior)
+    const outerLeft   = room.x;
+    const outerRight  = room.x + room.width;
+    const outerTop    = room.y;
+    const outerBottom = room.y + room.height;
+
+    const xTargets = [innerLeft, innerRight, outerLeft, outerRight];
+    const yTargets = [innerTop, innerBottom, outerTop, outerBottom];
+
+    for (const t of xTargets) {
+      const dL = Math.abs(edges.left - t);
+      if (dL < bestXDist) { bestXDist = dL; bestX = { val: t, delta: t - edges.left }; }
+      const dR = Math.abs(edges.right - t);
+      if (dR < bestXDist) { bestXDist = dR; bestX = { val: t, delta: t - edges.right }; }
+    }
+    for (const t of yTargets) {
+      const dT = Math.abs(edges.top - t);
+      if (dT < bestYDist) { bestYDist = dT; bestY = { val: t, delta: t - edges.top }; }
+      const dB = Math.abs(edges.bottom - t);
+      if (dB < bestYDist) { bestYDist = dB; bestY = { val: t, delta: t - edges.bottom }; }
+    }
+  }
+
+  const nx = bestX ? fx + bestX.delta : snapVal(fx);
+  const ny = bestY ? fy + bestY.delta : snapVal(fy);
+  if (bestX) guides.push({ axis: 'x', value: bestX.val });
+  if (bestY) guides.push({ axis: 'y', value: bestY.val });
+  return { x: nx, y: ny, guides };
+}
+
+// ── Overlap detection helpers ─────────────────────────────────────────────────
+// Returns true if two AABB rectangles overlap (touching edges are OK).
+function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+  const GAP = 0.01; // 1 cm tolerance so flush walls don't block
+  return ax + aw > bx + GAP && bx + bw > ax + GAP &&
+         ay + ah > by + GAP && by + bh > ay + GAP;
+}
+
+// Returns true if placing furniture at (fx,fy,fw,fd) would overlap any other
+// furniture item or the exterior of any room (for unrotated items only).
+function furnitureOverlapsAny(fx, fy, fw, fd, rot, allFurniture, excludeId) {
+  if (rot) return false; // skip overlap check for rotated items (complex)
+  for (const f of allFurniture) {
+    if (f.id === excludeId) continue;
+    if (f.rotation) continue; // skip rotated obstacles
+    if (rectsOverlap(fx, fy, fw, fd, f.x, f.y, f.width, f.depth)) return true;
+  }
+  return false;
+}
+
 // ── Wall endpoint snap ────────────────────────────────────────────────────────
 // Priority: 1) room corner  2) room wall face (projected)  3) other wall endpoint
 // Returns { x, y, snapped, kind } — kind is 'corner'|'wall'|'endpoint'|null
@@ -389,6 +499,7 @@ const FloorPlanEditor = () => {
   const hoverHandleRef  = useRef(null);    // handle corner/edge key the mouse is hovering ('nw', 'n', …)
   const hoverGroupRef   = useRef(false);   // true when mouse is over empty area inside a group rect
   const hoverWallEpRef  = useRef(false);   // true when hovering over a wall endpoint
+  const hoverRotateRef  = useRef(false);   // true when hovering over rotation handle
   const alignGuidesRef  = useRef([]);      // alignment guides: [{ axis:'x'|'y', value, kind }]
   const [renderTick, forceRender] = useState(0);
 
@@ -453,7 +564,7 @@ const FloorPlanEditor = () => {
     const handler = (e) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      const newScale = Math.max(0.25, Math.min(5, scaleRef.current * factor));
+      const newScale = Math.max(0.05, Math.min(5, scaleRef.current * factor));
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
@@ -562,7 +673,9 @@ const FloorPlanEditor = () => {
     if (showHeatmap) drawHeatmap(ctx);
     doors.forEach((door) => {
       const room = rooms.find((r) => r.id === door.roomId);
-      if (room) drawDoorSymbol(ctx, door, room, selectedIds.includes(door.id));
+      if (!room) return;
+      const roomRot = (room.rotation || 0) * Math.PI / 180;
+      drawDoorSymbol(ctx, door, room, selectedIds.includes(door.id), roomRot);
     });
     // Freestanding walls
     walls.forEach((w) => drawFWWall(ctx, w, selectedIds.includes(w.id)));
@@ -692,59 +805,7 @@ const FloorPlanEditor = () => {
       ctx.restore();
     }
 
-    // Multi-select bounding box + resize handles
-    if (selectedIds.length > 1) {
-      const bbox = getMultiSelectBBox();
-      if (bbox) {
-        const sp1 = toScreen(bbox.x1, bbox.y1);
-        const sp2 = toScreen(bbox.x2, bbox.y2);
-        const mw = sp2.x - sp1.x, mh = sp2.y - sp1.y;
-        const hov = hoverHandleRef.current;
-        // Dashed bounding rect
-        ctx.strokeStyle = '#1976D2';
-        ctx.lineWidth   = 1.5;
-        ctx.setLineDash([5, 4]);
-        ctx.strokeRect(sp1.x, sp1.y, mw, mh);
-        ctx.setLineDash([]);
-        // Corner + edge handles (reuse same style as single-item)
-        const handles = [
-          { key: 'nw', cx: sp1.x,       cy: sp1.y },
-          { key: 'ne', cx: sp2.x,       cy: sp1.y },
-          { key: 'se', cx: sp2.x,       cy: sp2.y },
-          { key: 'sw', cx: sp1.x,       cy: sp2.y },
-          { key: 'n',  cx: sp1.x+mw/2,  cy: sp1.y },
-          { key: 's',  cx: sp1.x+mw/2,  cy: sp2.y },
-          { key: 'w',  cx: sp1.x,       cy: sp1.y+mh/2 },
-          { key: 'e',  cx: sp2.x,       cy: sp1.y+mh/2 },
-        ];
-        const corners = ['nw','ne','se','sw'];
-        for (const { key, cx, cy } of handles) {
-          const isHot = hov === key;
-          if (corners.includes(key)) {
-            const hs = HANDLE_CORNER;
-            ctx.shadowColor = 'rgba(0,0,0,0.22)'; ctx.shadowBlur = isHot ? 6 : 3;
-            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
-            ctx.beginPath();
-            ctx.roundRect?.(cx-hs, cy-hs, hs*2, hs*2, 3) || ctx.rect(cx-hs, cy-hs, hs*2, hs*2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 2;
-            ctx.beginPath();
-            ctx.roundRect?.(cx-hs, cy-hs, hs*2, hs*2, 3) || ctx.rect(cx-hs, cy-hs, hs*2, hs*2);
-            ctx.stroke();
-          } else {
-            const r = HANDLE_EDGE;
-            ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = isHot ? 5 : 2;
-            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
-            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 1.5;
-            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-          }
-        }
-        ctx.shadowBlur = 0;
-      }
-    }
+    // (Selection overlay — drawn at end of render loop, after compass)
 
     // Wall snap indicator — orange ring + crosshair at snap point
     const ws = wallSnapRef.current;
@@ -814,6 +875,121 @@ const FloorPlanEditor = () => {
       ctx.fillText('N', cx, cy - r - 7);
       ctx.restore();
     }
+
+    // ══ SELECTION OVERLAY — drawn last so handles are always on top ══════════
+    const drawRotateHandleAt = (rhx, rhy, topCX, topCY, isHot) => {
+      // Stem
+      ctx.beginPath(); ctx.moveTo(topCX, topCY); ctx.lineTo(rhx, rhy);
+      ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2';
+      ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
+      // Outer ring
+      ctx.shadowColor = 'rgba(0,0,0,0.28)'; ctx.shadowBlur = isHot ? 8 : 4;
+      ctx.fillStyle   = isHot ? '#1565C0' : '#1976D2';
+      ctx.beginPath(); ctx.arc(rhx, rhy, HANDLE_CORNER + 3, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur  = 0;
+      ctx.strokeStyle = isHot ? '#0D47A1' : 'rgba(255,255,255,0.7)';
+      ctx.lineWidth   = isHot ? 2 : 1.5;
+      ctx.beginPath(); ctx.arc(rhx, rhy, HANDLE_CORNER + 3, 0, Math.PI * 2); ctx.stroke();
+      // ↻ arrow icon (white)
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.arc(rhx, rhy, 4.5, -Math.PI * 0.75, Math.PI * 0.5); ctx.stroke();
+      const ta = Math.PI * 0.5;
+      const ax = rhx + 4.5 * Math.cos(ta), ay = rhy + 4.5 * Math.sin(ta);
+      ctx.beginPath(); ctx.moveTo(ax - 3, ay - 1); ctx.lineTo(ax, ay); ctx.lineTo(ax - 1, ay + 3); ctx.stroke();
+    };
+
+    if (selectedIds.length === 1 && !lockedIds.includes(selectedId)) {
+      const room = rooms.find((r) => r.id === selectedId);
+      const furn = furniture.find((f) => f.id === selectedId);
+      if (room) {
+        const sp  = toScreen(room.x, room.y);
+        const sw2 = room.width  * PPM * scale;
+        const sh2 = room.height * PPM * scale;
+        const rot = ((room.rotation || 0) * Math.PI) / 180;
+        const rcx = sp.x + sw2 / 2, rcy = sp.y + sh2 / 2;
+        ctx.save();
+        if (rot) { ctx.translate(rcx, rcy); ctx.rotate(rot); ctx.translate(-sw2 / 2, -sh2 / 2); }
+        else     { ctx.translate(sp.x, sp.y); }
+        drawHandles(ctx, 0, 0, sw2, sh2);
+        ctx.restore();
+        // Rotation handle
+        const { rhx, rhy } = getRotateHandleScreen(room);
+        const tcx = rcx - (sh2 / 2) * Math.sin(rot);
+        const tcy = rcy - (sh2 / 2) * Math.cos(rot);
+        drawRotateHandleAt(rhx, rhy, tcx, tcy, hoverRotateRef.current);
+      }
+      if (furn) {
+        const sp  = toScreen(furn.x, furn.y);
+        const sw2 = furn.width * PPM * scale;
+        const sd2 = furn.depth * PPM * scale;
+        const rot = ((furn.rotation || 0) * Math.PI) / 180;
+        const fcx = sp.x + sw2 / 2, fcy = sp.y + sd2 / 2;
+        // Draw resize handles in rotated context
+        ctx.save();
+        ctx.translate(fcx, fcy); ctx.rotate(rot); ctx.translate(-sw2 / 2, -sd2 / 2);
+        drawHandles(ctx, 0, 0, sw2, sd2);
+        ctx.restore();
+        // Rotation handle above top-center (screen space)
+        const { rhx, rhy } = getRotateHandleScreen(furn);
+        // Rotated top-center: rotate (0, -sd2/2) around item center
+        const tcx = fcx - (sd2 / 2) * Math.sin(rot);
+        const tcy = fcy - (sd2 / 2) * Math.cos(rot);
+        drawRotateHandleAt(rhx, rhy, tcx, tcy, hoverRotateRef.current);
+      }
+    }
+
+    if (selectedIds.length > 1) {
+      const bbox = getMultiSelectBBox();
+      if (bbox) {
+        const sp1 = toScreen(bbox.x1, bbox.y1);
+        const sp2 = toScreen(bbox.x2, bbox.y2);
+        const mw = sp2.x - sp1.x, mh = sp2.y - sp1.y;
+        const hov = hoverHandleRef.current;
+        // Dashed bounding rect
+        ctx.strokeStyle = '#1976D2'; ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]); ctx.strokeRect(sp1.x, sp1.y, mw, mh); ctx.setLineDash([]);
+        // Handles
+        const handles = [
+          { key: 'nw', hx: sp1.x,       hy: sp1.y },
+          { key: 'ne', hx: sp2.x,       hy: sp1.y },
+          { key: 'se', hx: sp2.x,       hy: sp2.y },
+          { key: 'sw', hx: sp1.x,       hy: sp2.y },
+          { key: 'n',  hx: sp1.x+mw/2,  hy: sp1.y },
+          { key: 's',  hx: sp1.x+mw/2,  hy: sp2.y },
+          { key: 'w',  hx: sp1.x,       hy: sp1.y+mh/2 },
+          { key: 'e',  hx: sp2.x,       hy: sp1.y+mh/2 },
+        ];
+        const corners = ['nw','ne','se','sw'];
+        for (const { key, hx, hy } of handles) {
+          const isHot = hov === key;
+          if (corners.includes(key)) {
+            const hs = HANDLE_CORNER;
+            ctx.shadowColor = 'rgba(0,0,0,0.22)'; ctx.shadowBlur = isHot ? 6 : 3;
+            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
+            ctx.beginPath(); ctx.roundRect?.(hx-hs, hy-hs, hs*2, hs*2, 3) || ctx.rect(hx-hs, hy-hs, hs*2, hs*2); ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 2;
+            ctx.beginPath(); ctx.roundRect?.(hx-hs, hy-hs, hs*2, hs*2, 3) || ctx.rect(hx-hs, hy-hs, hs*2, hs*2); ctx.stroke();
+          } else {
+            const r = HANDLE_EDGE;
+            ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = isHot ? 5 : 2;
+            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
+            ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 1.5;
+            ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.stroke();
+          }
+        }
+        ctx.shadowBlur = 0;
+        // Rotation handle above top-center of bbox
+        const bboxCX = sp1.x + mw / 2;
+        const rhx2 = bboxCX;
+        const rhy2 = sp1.y - ROTATE_HANDLE_OFFSET;
+        drawRotateHandleAt(rhx2, rhy2, bboxCX, sp1.y, hoverRotateRef.current);
+      }
+    }
+    // ════════════════════════════════════════════════════════════════════════
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rooms, furniture, doors, walls, groups, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick]);
 
@@ -1046,6 +1222,7 @@ const FloorPlanEditor = () => {
   // Handle sizes — larger = easier to grab
   const HANDLE_CORNER = 5;  // corner square half-size (px)
   const HANDLE_EDGE   = 4;  // edge midpoint circle radius (px)
+  const ROTATE_HANDLE_OFFSET = 28; // px above top-center of item (screen space)
   const HANDLE_TOL    = 11; // hit-test tolerance in px (generous for smooth grab)
 
   // Cursor per handle type
@@ -1124,104 +1301,213 @@ const FloorPlanEditor = () => {
     ctx.fillRect(sx - s * 0.22, by + s * 0.44, s * 0.44, s * 0.38);
   };
 
-  // ── Draw room with per-wall segments (allows door gaps) ───────────────────
+  // ── Draw room — supports both rectangle and polygon shapes ──────────────────
   const drawRoom = (ctx, room, isSel) => {
-    const sc = scaleRef.current;
-    const sp = toScreen(room.x, room.y);
-    const sw = room.width  * PPM * sc;
-    const sh = room.height * PPM * sc;
-    const wt = (room.wallThickness || 0.15) * PPM * sc;
+    const sc  = scaleRef.current;
+    const rot = ((room.rotation || 0) * Math.PI) / 180;
     const isLocked = lockedIds.includes(room.id);
+    const isPoly   = room.polygon && room.polygon.length >= 3;
 
-    ctx.fillStyle = room.floorColor;
-    ctx.fillRect(sp.x + wt / 2, sp.y + wt / 2, sw - wt, sh - wt);
+    // Rotate a world point around the room bbox centre (for rectangle rooms with rotation)
+    const rwcx = room.x + room.width  / 2;
+    const rwcy = room.y + room.height / 2;
+    const cosR = Math.cos(rot), sinR = Math.sin(rot);
+    const rotWP = (wx, wy) => {
+      if (!rot) return { x: wx, y: wy };
+      const dx = wx - rwcx, dy = wy - rwcy;
+      return { x: rwcx + dx * cosR - dy * sinR, y: rwcy + dx * sinR + dy * cosR };
+    };
 
+    const wt  = (room.wallThickness || 0.15) * PPM * sc;
+    const wtW = (room.wallThickness || 0.15) / 2;
     const wallColor = isSel ? '#1565C0' : room.wallColor;
-    const roomDoors = doors.filter((d) => d.roomId === room.id);
 
-    for (const wall of ['north', 'south', 'east', 'west']) {
-      if ((room.hiddenWalls || []).includes(wall)) continue;
-      const { start, end, len } = getWallEndpoints(room, wall);
-      const sp1 = toScreen(start.x, start.y);
-      const sp2 = toScreen(end.x, end.y);
+    if (isPoly) {
+      // ── Polygon room ──────────────────────────────────────────────────────
+      const poly = room.polygon;
+      const n    = poly.length;
 
-      const ownDoors    = roomDoors.filter((d) => d.wall === wall);
-      const sharedDoors = getSharedWallDoors(room, wall, doors, rooms);
-      const wallDoors   = [...ownDoors, ...sharedDoors].sort((a, b) => a.offset - b.offset);
+      // Floor fill — inset polygon by wtW using simple vertex-normal inset
+      // For a convex polygon this gives a clean inset; for concave it may clip
+      const insetPoly = poly.map((v, i) => {
+        const prev = poly[(i + n - 1) % n];
+        const next = poly[(i + 1) % n];
+        // edge vectors
+        const e1x = v.x - prev.x, e1y = v.y - prev.y;
+        const e2x = next.x - v.x, e2y = next.y - v.y;
+        // inward normals (2D left normal = (-y, x) normalised)
+        const l1 = Math.hypot(e1x, e1y) || 1;
+        const l2 = Math.hypot(e2x, e2y) || 1;
+        const n1x = -e1y / l1, n1y = e1x / l1;
+        const n2x = -e2y / l2, n2y = e2x / l2;
+        // bisector
+        const bx = n1x + n2x, by = n1y + n2y;
+        const bl = Math.hypot(bx, by) || 1;
+        const dot = n1x * bx / bl + n1y * by / bl || 1;
+        const dist = wtW / dot;
+        return { x: v.x + bx / bl * dist, y: v.y + by / bl * dist };
+      });
 
+      const sp  = insetPoly.map((p) => toScreen(p.x, p.y));
+      ctx.fillStyle = room.floorColor;
+      ctx.beginPath();
+      ctx.moveTo(sp[0].x, sp[0].y);
+      for (let i = 1; i < sp.length; i++) ctx.lineTo(sp[i].x, sp[i].y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Walls — draw each polygon edge as a stroked line segment
       ctx.strokeStyle = wallColor;
       ctx.lineWidth   = wt;
       ctx.lineCap     = 'square';
+      ctx.lineJoin    = 'miter';
+      const screenPoly = poly.map((p) => toScreen(p.x, p.y));
+      ctx.beginPath();
+      ctx.moveTo(screenPoly[0].x, screenPoly[0].y);
+      for (let i = 1; i < screenPoly.length; i++) ctx.lineTo(screenPoly[i].x, screenPoly[i].y);
+      ctx.closePath();
+      ctx.stroke();
 
-      let prevT = 0;
-      for (const d of wallDoors) {
-        const gapStart = Math.max(0, d.offset / len);
-        const gapEnd   = Math.min(1, (d.offset + d.width) / len);
-        if (gapStart > prevT) {
+      // Label — centred on bounding box centre
+      const bb = polyBoundingBox(poly);
+      const csp = toScreen(bb.x + bb.width / 2, bb.y + bb.height / 2);
+      const bbSW = bb.width * PPM * sc, bbSH = bb.height * PPM * sc;
+      if (bbSW > 50 && bbSH > 28) {
+        ctx.fillStyle    = isSel ? '#1565C0' : 'rgba(0,0,0,0.45)';
+        ctx.font         = `${Math.max(10, 12 * sc)}px sans-serif`;
+        ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(room.name, csp.x, csp.y);
+      }
+
+      if (isLocked) drawLockBadge(ctx, screenPoly[0].x, screenPoly[0].y, sc);
+
+    } else {
+      // ── Rectangle room (original path) ────────────────────────────────────
+      const sp = toScreen(room.x, room.y);
+      const sw = room.width  * PPM * sc;
+      const sh = room.height * PPM * sc;
+      const rcx = sp.x + sw / 2, rcy = sp.y + sh / 2;
+
+      // Floor polygon
+      const floorCorners = [
+        rotWP(room.x + wtW, room.y + wtW),
+        rotWP(room.x + room.width - wtW, room.y + wtW),
+        rotWP(room.x + room.width - wtW, room.y + room.height - wtW),
+        rotWP(room.x + wtW,              room.y + room.height - wtW),
+      ].map((p) => toScreen(p.x, p.y));
+      ctx.fillStyle = room.floorColor;
+      ctx.beginPath();
+      ctx.moveTo(floorCorners[0].x, floorCorners[0].y);
+      for (let i = 1; i < 4; i++) ctx.lineTo(floorCorners[i].x, floorCorners[i].y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Walls with door gaps
+      const roomDoors = doors.filter((d) => d.roomId === room.id);
+      for (const wall of ['north', 'south', 'east', 'west']) {
+        if ((room.hiddenWalls || []).includes(wall)) continue;
+        const { start, end, len } = getWallEndpoints(room, wall);
+        const rs  = rotWP(start.x, start.y);
+        const re  = rotWP(end.x,   end.y);
+        const sp1 = toScreen(rs.x, rs.y);
+        const sp2 = toScreen(re.x, re.y);
+        const ownDoors    = roomDoors.filter((d) => d.wall === wall);
+        const sharedDoors = getSharedWallDoors(room, wall, doors, rooms);
+        const wallDoors   = [...ownDoors, ...sharedDoors].sort((a, b) => a.offset - b.offset);
+        ctx.strokeStyle = wallColor;
+        ctx.lineWidth   = wt;
+        ctx.lineCap     = 'square';
+        let prevT = 0;
+        for (const d of wallDoors) {
+          const gapStart = Math.max(0, d.offset / len);
+          const gapEnd   = Math.min(1, (d.offset + d.width) / len);
+          if (gapStart > prevT) {
+            ctx.beginPath();
+            ctx.moveTo(sp1.x + (sp2.x - sp1.x) * prevT,    sp1.y + (sp2.y - sp1.y) * prevT);
+            ctx.lineTo(sp1.x + (sp2.x - sp1.x) * gapStart, sp1.y + (sp2.y - sp1.y) * gapStart);
+            ctx.stroke();
+          }
+          prevT = gapEnd;
+        }
+        if (prevT < 1) {
           ctx.beginPath();
-          ctx.moveTo(sp1.x + (sp2.x - sp1.x) * prevT,   sp1.y + (sp2.y - sp1.y) * prevT);
-          ctx.lineTo(sp1.x + (sp2.x - sp1.x) * gapStart, sp1.y + (sp2.y - sp1.y) * gapStart);
+          ctx.moveTo(sp1.x + (sp2.x - sp1.x) * prevT, sp1.y + (sp2.y - sp1.y) * prevT);
+          ctx.lineTo(sp2.x, sp2.y);
           ctx.stroke();
         }
-        prevT = gapEnd;
       }
-      if (prevT < 1) {
-        ctx.beginPath();
-        ctx.moveTo(sp1.x + (sp2.x - sp1.x) * prevT, sp1.y + (sp2.y - sp1.y) * prevT);
-        ctx.lineTo(sp2.x, sp2.y);
-        ctx.stroke();
+
+      // Label
+      if (sw > 50 && sh > 28) {
+        ctx.fillStyle    = isSel ? '#1565C0' : 'rgba(0,0,0,0.45)';
+        ctx.font         = `${Math.max(10, 12 * sc)}px sans-serif`;
+        ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
+        ctx.save(); ctx.translate(rcx, rcy); ctx.rotate(rot);
+        ctx.fillText(room.name, 0, 0);
+        ctx.restore();
+      }
+
+      // Dimension labels when selected
+      if (isSel && sw > 60) {
+        ctx.fillStyle = '#1565C0';
+        ctx.font = `${Math.max(9, 10 * sc)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const wlp = toScreen(rwcx, room.y);
+        ctx.save(); ctx.translate(wlp.x, wlp.y); ctx.rotate(rot);
+        ctx.fillText(`${room.width.toFixed(2)}m`, 0, -wt / 2 - 8 * sc);
+        ctx.restore();
+        const hlp = toScreen(room.x, rwcy);
+        ctx.save(); ctx.translate(hlp.x, hlp.y); ctx.rotate(rot - Math.PI / 2);
+        ctx.fillText(`${room.height.toFixed(2)}m`, 0, -wt / 2 - 8 * sc);
+        ctx.restore();
+      }
+
+      if (isLocked) {
+        const lkRot = rotWP(room.x + room.width - 8 / (PPM * sc), room.y + 8 / (PPM * sc));
+        const lkp = toScreen(lkRot.x, lkRot.y);
+        drawLockBadge(ctx, lkp.x, lkp.y, sc);
       }
     }
-
-    if (sw > 50 && sh > 28) {
-      ctx.fillStyle    = isSel ? '#1565C0' : 'rgba(0,0,0,0.45)';
-      ctx.font         = `${Math.max(10, 12 * sc)}px sans-serif`;
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(room.name, sp.x + sw / 2, sp.y + sh / 2);
-    }
-
-    if (isSel && sw > 60) {
-      ctx.fillStyle = '#1565C0';
-      ctx.font = `${Math.max(9, 10 * sc)}px sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(`${room.width.toFixed(2)}m`, sp.x + sw / 2, sp.y - wt / 2 - 8 * sc);
-      ctx.save();
-      ctx.translate(sp.x - wt / 2 - 8 * sc, sp.y + sh / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText(`${room.height.toFixed(2)}m`, 0, 0);
-      ctx.restore();
-    }
-
-    // Selection handles (only when single item selected)
-    if (isSel && selectedIds.length === 1) {
-      drawHandles(ctx, sp.x, sp.y, sw, sh);
-    }
-
-    if (isLocked) drawLockBadge(ctx, sp.x + sw - 8 * sc, sp.y + 8 * sc, sc);
   };
 
   // ── Draw door swing symbol ───────────────────────────────────────────────
-  const drawDoorSymbol = (ctx, door, room, isSel) => {
+  // roomRot: room rotation in radians (0 for freestanding-wall doors)
+  const drawDoorSymbol = (ctx, door, room, isSel, roomRot = 0) => {
     const sc = scaleRef.current;
     const { hingePoint, panelDir, swingDir } = getDoorInfo(door, room);
-    const sh  = toScreen(hingePoint.x, hingePoint.y);
-    const radius = door.width * PPM * sc;
 
-    const θ = door.openAngle * Math.PI / 180;
+    // Rotate geometry around room world-centre if the room is rotated
+    let rhp = hingePoint, rpd = panelDir, rsd = swingDir;
+    if (roomRot) {
+      const rwcx = room.x + room.width / 2, rwcy = room.y + room.height / 2;
+      const cosA = Math.cos(roomRot), sinA = Math.sin(roomRot);
+      const rotV = (vx, vy) => ({ x: vx * cosA - vy * sinA, y: vx * sinA + vy * cosA });
+      const rotP = (px, py) => {
+        const dx = px - rwcx, dy = py - rwcy;
+        return { x: rwcx + dx * cosA - dy * sinA, y: rwcy + dx * sinA + dy * cosA };
+      };
+      rhp = rotP(hingePoint.x, hingePoint.y);
+      rpd = rotV(panelDir.x, panelDir.y);
+      rsd = rotV(swingDir.x, swingDir.y);
+    }
+
+    const sh     = toScreen(rhp.x, rhp.y);
+    const radius = door.width * PPM * sc;
+    const θ      = door.openAngle * Math.PI / 180;
+
     const tipWorld = {
-      x: hingePoint.x + door.width * (Math.cos(θ) * panelDir.x + Math.sin(θ) * swingDir.x),
-      y: hingePoint.y + door.width * (Math.cos(θ) * panelDir.y + Math.sin(θ) * swingDir.y),
+      x: rhp.x + door.width * (Math.cos(θ) * rpd.x + Math.sin(θ) * rsd.x),
+      y: rhp.y + door.width * (Math.cos(θ) * rpd.y + Math.sin(θ) * rsd.y),
     };
     const sTip = toScreen(tipWorld.x, tipWorld.y);
 
     const panelColor = isSel ? '#1565C0' : '#7B5B3A';
     const arcColor   = isSel ? 'rgba(21,101,192,0.4)' : 'rgba(123,91,58,0.35)';
 
-    const startAngle   = Math.atan2(panelDir.y, panelDir.x);
-    const cross        = panelDir.x * swingDir.y - panelDir.y * swingDir.x;
+    const startAngle    = Math.atan2(rpd.y, rpd.x);
+    const cross         = rpd.x * rsd.y - rpd.y * rsd.x;
     const anticlockwise = cross < 0;
-    const endAngle     = startAngle + (anticlockwise ? -θ : θ);
+    const endAngle      = startAngle + (anticlockwise ? -θ : θ);
 
     ctx.strokeStyle = arcColor;
     ctx.lineWidth   = Math.max(0.8, 1 * sc);
@@ -1232,8 +1518,8 @@ const FloorPlanEditor = () => {
     ctx.setLineDash([]);
 
     const closedTip = {
-      x: sh.x + radius * panelDir.x,
-      y: sh.y + radius * panelDir.y,
+      x: sh.x + radius * rpd.x,
+      y: sh.y + radius * rpd.y,
     };
     ctx.strokeStyle = arcColor;
     ctx.lineWidth   = Math.max(0.8, 1 * sc);
@@ -1412,11 +1698,6 @@ const FloorPlanEditor = () => {
     ctx.lineWidth   = isSel ? 2 : 1;
     ctx.strokeRect(0, 0, sw, sd);
 
-    // Selection handles drawn in rotated local space
-    if (isSel && selectedIds.length === 1) {
-      drawHandles(ctx, 0, 0, sw, sd);
-    }
-
     if (isLocked) drawLockBadge(ctx, sw - 6 * sc, 6 * sc, sc);
 
     ctx.restore();
@@ -1434,6 +1715,16 @@ const FloorPlanEditor = () => {
 
   // ── Hit testing ─────────────────────────────────────────────────────────────
   const ptInRect = (px, py, rx, ry, rw, rh) => px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+
+  // Hit test accounting for rotation — transforms point into item's local space
+  const ptInRotatedRect = (px, py, rx, ry, rw, rh, rotRad) => {
+    if (!rotRad) return ptInRect(px, py, rx, ry, rw, rh);
+    const cx = rx + rw / 2, cy = ry + rh / 2;
+    const cos = Math.cos(-rotRad), sin = Math.sin(-rotRad);
+    const dx = px - cx, dy = py - cy;
+    const lx = dx * cos - dy * sin, ly = dx * sin + dy * cos;
+    return Math.abs(lx) <= rw / 2 && Math.abs(ly) <= rh / 2;
+  };
 
   // Returns world-space bounding box of a group (including outline padding), or null
   const getGroupBounds = useCallback((group) => {
@@ -1475,7 +1766,7 @@ const FloorPlanEditor = () => {
     const sp  = toScreen(item.x, item.y);
     const sw  = iw * PPM * scaleRef.current;
     const sh  = ih * PPM * scaleRef.current;
-    const rot = ((furn?.rotation || 0) * Math.PI) / 180;
+    const rot = ((item.rotation || 0) * Math.PI) / 180;
     const cx  = sp.x + sw / 2, cy = sp.y + sh / 2;
     const t   = HANDLE_TOL;
 
@@ -1503,25 +1794,69 @@ const FloorPlanEditor = () => {
     return best;
   };
 
+  // ── Rotation handle: screen position for any item (furniture or room) ──────
+  const getRotateHandleScreen = (item) => {
+    const sp  = toScreen(item.x, item.y);
+    const sw  = item.width * PPM * scaleRef.current;
+    const sd  = (item.depth ?? item.height) * PPM * scaleRef.current;
+    const rot = ((item.rotation || 0) * Math.PI) / 180;
+    const cx  = sp.x + sw / 2;
+    const cy  = sp.y + sd / 2;
+    const dist = sd / 2 + ROTATE_HANDLE_OFFSET;
+    return {
+      rhx: cx + dist * Math.sin(rot),
+      rhy: cy - dist * Math.cos(rot),
+      cx, cy,
+    };
+  };
+
+  // ── Rotation handle hit test (single select — furniture or room) ──────────
+  const getRotateHandleAtScreen = (sx, sy) => {
+    if (selectedIds.length !== 1) return null;
+    if (lockedIds.includes(selectedId)) return null;
+    const furn = furniture.find((f) => f.id === selectedId);
+    const room = rooms.find((r) => r.id === selectedId);
+    const item = furn || room;
+    if (!item) return null;
+    const { rhx, rhy, cx, cy } = getRotateHandleScreen(item);
+    const d = Math.hypot(sx - rhx, sy - rhy);
+    if (d <= HANDLE_TOL + 4) return { item, rhx, rhy, cx, cy, isRoom: !!room };
+    return null;
+  };
+
+  // ── Multi-select rotation handle hit test ─────────────────────────────────
+  const getMultiRotateHandleAtScreen = (sx, sy) => {
+    if (selectedIds.length < 2) return null;
+    const bbox = getMultiSelectBBox();
+    if (!bbox) return null;
+    const sp1 = toScreen(bbox.x1, bbox.y1);
+    const sp2 = toScreen(bbox.x2, bbox.y2);
+    const rhx = sp1.x + (sp2.x - sp1.x) / 2;
+    const rhy = sp1.y - ROTATE_HANDLE_OFFSET;
+    // bbox center in screen space (for angle calc)
+    const bcx = sp1.x + (sp2.x - sp1.x) / 2;
+    const bcy = sp1.y + (sp2.y - sp1.y) / 2;
+    const d = Math.hypot(sx - rhx, sy - rhy);
+    if (d <= HANDLE_TOL + 4) return { rhx, rhy, bcx, bcy };
+    return null;
+  };
+
   // ── Apply resize given current world mouse position ────────────────────────
   // For rotated furniture: project delta onto local axes and resize from center.
   // For rooms (no rotation): classic corner/edge resize.
   const applyResize = (drag, wx, wy) => {
     const MIN = SNAP;
 
-    if (!drag.isRoom && drag.rot !== 0) {
-      // ── Rotated furniture: resize symmetrically from center in local space ──
+    if (drag.rot !== 0) {
+      // ── Rotated item: resize symmetrically from center in local space ──
       const origCX = drag.origX + drag.origW / 2;
       const origCY = drag.origY + drag.origH / 2;
-      // World delta from drag start
       const dwx = wx - drag.startWX, dwy = wy - drag.startWY;
-      // Project onto local axes (unrotate delta)
       const cos = Math.cos(-drag.rot), sin = Math.sin(-drag.rot);
       const localDX = dwx * cos - dwy * sin;
       const localDY = dwx * sin + dwy * cos;
 
       let nw = drag.origW, nh = drag.origH;
-      // Map handle key to which axis it stretches
       switch (drag.key) {
         case 'e': case 'ne': case 'se': nw = Math.max(MIN, snapVal(drag.origW + localDX)); break;
         case 'w': case 'nw': case 'sw': nw = Math.max(MIN, snapVal(drag.origW - localDX)); break;
@@ -1530,8 +1865,8 @@ const FloorPlanEditor = () => {
         case 's': case 'se': case 'sw': nh = Math.max(MIN, snapVal(drag.origH + localDY)); break;
         case 'n': case 'ne': case 'nw': nh = Math.max(MIN, snapVal(drag.origH - localDY)); break;
       }
-      // Keep center fixed, recompute top-left
-      updateFurniture(selectedId, { x: origCX - nw / 2, y: origCY - nh / 2, width: nw, depth: nh });
+      if (drag.isRoom) updateRoom(selectedId, { x: origCX - nw / 2, y: origCY - nh / 2, width: nw, height: nh });
+      else             updateFurniture(selectedId, { x: origCX - nw / 2, y: origCY - nh / 2, width: nw, depth: nh });
       return;
     }
 
@@ -1652,12 +1987,22 @@ const FloorPlanEditor = () => {
       if (door.roomId) {
         const room = rooms.find((r) => r.id === door.roomId);
         if (!room) continue;
+        // Transform click point into room's unrotated local space
+        const rotRad = (room.rotation || 0) * Math.PI / 180;
+        let lwx = wx, lwy = wy;
+        if (rotRad) {
+          const rcx = room.x + room.width / 2, rcy = room.y + room.height / 2;
+          const cos = Math.cos(-rotRad), sin = Math.sin(-rotRad);
+          const dx2 = wx - rcx, dy2 = wy - rcy;
+          lwx = rcx + dx2 * cos - dy2 * sin;
+          lwy = rcy + dx2 * sin + dy2 * cos;
+        }
         const { hingePoint, panelDir, swingDir } = getDoorInfo(door, room);
-        if (Math.hypot(wx - hingePoint.x, wy - hingePoint.y) < tol) return door;
+        if (Math.hypot(lwx - hingePoint.x, lwy - hingePoint.y) < tol) return door;
         const θ = door.openAngle * Math.PI / 180;
         const midX = hingePoint.x + (door.width / 2) * (Math.cos(θ) * panelDir.x + Math.sin(θ) * swingDir.x);
         const midY = hingePoint.y + (door.width / 2) * (Math.cos(θ) * panelDir.y + Math.sin(θ) * swingDir.y);
-        if (Math.hypot(wx - midX, wy - midY) < tol) return door;
+        if (Math.hypot(lwx - midX, lwy - midY) < tol) return door;
       }
       // Freestanding wall door
       if (door.wallId) {
@@ -1773,6 +2118,73 @@ const FloorPlanEditor = () => {
         }
       }
 
+      // ── Selection bbox interior drag (click anywhere inside multi-selection) ──
+      // This makes the entire blue bounding box a drag zone — user doesn't need
+      // to click directly on an individual object to move all selected items.
+      if (selectedIds.length > 1) {
+        const bbox = getMultiSelectBBox();
+        if (bbox && wx >= bbox.x1 && wx <= bbox.x2 && wy >= bbox.y1 && wy <= bbox.y2) {
+          useFloorPlannerStore.getState()._pushHistory();
+          const origins = {};
+          const storeState = useFloorPlannerStore.getState();
+          for (const id of selectedIds) {
+            if (lockedIds.includes(id)) continue;
+            const f2 = storeState.furniture.find((x) => x.id === id);
+            const r2 = storeState.rooms.find((x) => x.id === id);
+            if (f2) origins[id] = { x: f2.x, y: f2.y, kind: 'furniture' };
+            else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room' };
+            else { const w2 = storeState.walls && storeState.walls.find((x) => x.id === id); if (w2) origins[id] = { x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2, kind: 'wall' }; }
+          }
+          if (Object.keys(origins).length > 0) {
+            dragRef.current = { type: 'multi', origins, startWX: wx, startWY: wy };
+            return;
+          }
+        }
+      }
+
+      // ── Multi-select rotation handle ──
+      const mRotHit = getMultiRotateHandleAtScreen(sx, sy);
+      if (mRotHit) {
+        useFloorPlannerStore.getState()._pushHistory();
+        const storeState = useFloorPlannerStore.getState();
+        // World-space center of the entire selection (orbit pivot)
+        const bbox = getMultiSelectBBox();
+        const bboxWCX = (bbox.x1 + bbox.x2) / 2;
+        const bboxWCY = (bbox.y1 + bbox.y2) / 2;
+        const origItems = {};
+        for (const id of selectedIds) {
+          if (lockedIds.includes(id)) continue;
+          const f2 = storeState.furniture.find((x) => x.id === id);
+          const r2 = storeState.rooms.find((x) => x.id === id);
+          const w2 = storeState.walls.find((x) => x.id === id);
+          if (f2) origItems[id] = { cx: f2.x + f2.width / 2, cy: f2.y + f2.depth / 2, rotation: f2.rotation || 0, width: f2.width, depth: f2.depth, kind: 'furniture' };
+          else if (r2) origItems[id] = { cx: r2.x + r2.width / 2, cy: r2.y + r2.height / 2, rotation: r2.rotation || 0, width: r2.width, depth: r2.height, kind: 'room' };
+          else if (w2) origItems[id] = { x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2, kind: 'wall' };
+        }
+        dragRef.current = {
+          type: 'rotate-multi',
+          bcx: mRotHit.bcx, bcy: mRotHit.bcy,   // screen-space center for angle
+          bboxWCX, bboxWCY,                        // world-space pivot for orbit
+          startAngle: Math.atan2(sy - mRotHit.bcy, sx - mRotHit.bcx),
+          origItems,
+        };
+        return;
+      }
+
+      // ── Rotation handle check (furniture or room, single selection) ──
+      const rotHit = getRotateHandleAtScreen(sx, sy);
+      if (rotHit) {
+        useFloorPlannerStore.getState()._pushHistory();
+        dragRef.current = {
+          type: 'rotate', id: rotHit.item.id,
+          cx: rotHit.cx, cy: rotHit.cy,
+          startAngle: Math.atan2(sy - rotHit.cy, sx - rotHit.cx),
+          origRotation: rotHit.item.rotation || 0,
+          isRoom: rotHit.isRoom,
+        };
+        return;
+      }
+
       // ── Resize handle check (screen-space, only single selection) ──
       const handleHit = getHandleAtScreen(sx, sy);
       if (handleHit) {
@@ -1803,6 +2215,7 @@ const FloorPlanEditor = () => {
             type: 'door', id: doorHit.id, wall: doorHit.wall,
             roomWidth: room.width, roomHeight: room.height,
             doorWidth: doorHit.width,
+            roomRotation: room.rotation || 0,
             startWX: wx, startWY: wy, origOffset: doorHit.offset,
           };
         }
@@ -1857,14 +2270,33 @@ const FloorPlanEditor = () => {
             useFloorPlannerStore.getState()._pushHistory();
             const distP1 = Math.hypot(wx - wallHit.x1, wy - wallHit.y1);
             const distP2 = Math.hypot(wx - wallHit.x2, wy - wallHit.y2);
-            if (distP1 <= ENDPOINT_TOL) {
-              // Drag endpoint 1 — reshapes wall
-              dragRef.current = { type: 'wall-ep', id: wallHit.id, endpoint: 1,
-                origX1: wallHit.x1, origY1: wallHit.y1, origX2: wallHit.x2, origY2: wallHit.y2 };
-            } else if (distP2 <= ENDPOINT_TOL) {
-              // Drag endpoint 2 — reshapes wall
-              dragRef.current = { type: 'wall-ep', id: wallHit.id, endpoint: 2,
-                origX1: wallHit.x1, origY1: wallHit.y1, origX2: wallHit.x2, origY2: wallHit.y2 };
+            const nearEp = distP1 <= ENDPOINT_TOL ? 1 : distP2 <= ENDPOINT_TOL ? 2 : 0;
+
+            if (nearEp) {
+              // Check for other walls sharing this endpoint (join drag)
+              const jx = nearEp === 1 ? wallHit.x1 : wallHit.x2;
+              const jy = nearEp === 1 ? wallHit.y1 : wallHit.y2;
+              // endpoints: [ { id, ep: 1|2, origX1, origY1, origX2, origY2 } ]
+              const joined = [{ id: wallHit.id, ep: nearEp,
+                origX1: wallHit.x1, origY1: wallHit.y1,
+                origX2: wallHit.x2, origY2: wallHit.y2 }];
+              for (const w of walls) {
+                if (w.id === wallHit.id || lockedIds.includes(w.id)) continue;
+                const d1 = Math.hypot(w.x1 - jx, w.y1 - jy);
+                const d2 = Math.hypot(w.x2 - jx, w.y2 - jy);
+                if (d1 <= ENDPOINT_TOL)
+                  joined.push({ id: w.id, ep: 1, origX1: w.x1, origY1: w.y1, origX2: w.x2, origY2: w.y2 });
+                else if (d2 <= ENDPOINT_TOL)
+                  joined.push({ id: w.id, ep: 2, origX1: w.x1, origY1: w.y1, origX2: w.x2, origY2: w.y2 });
+              }
+              if (joined.length > 1) {
+                // Joint drag — all endpoints move together
+                dragRef.current = { type: 'wall-join', joined, startWX: wx, startWY: wy };
+              } else {
+                // Solo endpoint drag — reshapes only this wall
+                dragRef.current = { type: 'wall-ep', id: wallHit.id, endpoint: nearEp,
+                  origX1: wallHit.x1, origY1: wallHit.y1, origX2: wallHit.x2, origY2: wallHit.y2 };
+              }
             } else {
               // Drag body — moves whole wall
               dragRef.current = { type: 'wall', id: wallHit.id,
@@ -1920,7 +2352,7 @@ const FloorPlanEditor = () => {
       let roomHit = null;
       for (let i = rooms.length - 1; i >= 0; i--) {
         const r = rooms[i];
-        if (ptInRect(wx, wy, r.x, r.y, r.width, r.height)) { roomHit = r; break; }
+        if (ptInRotatedRect(wx, wy, r.x, r.y, r.width, r.height, (r.rotation || 0) * Math.PI / 180)) { roomHit = r; break; }
       }
       if (roomHit) {
         const hitGroup = groups.find((g) => g.itemIds.includes(roomHit.id));
@@ -1980,10 +2412,12 @@ const FloorPlanEditor = () => {
       const roomHit = findNearestWall(wx, wy, rooms);
       if (roomHit) {
         addDoor({ roomId: roomHit.room.id, wall: roomHit.wall, offset: roomHit.offset });
+        setActiveTool('select');
       } else {
         const fwHit = findNearestFWWall(wx, wy, walls);
         if (fwHit) {
           addDoor({ wallId: fwHit.wall.id, offset: fwHit.offset, width: DEFAULT_DOOR_WIDTH, openAngle: 90, hingeSide: 'left', swingIn: true });
+          setActiveTool('select');
         }
       }
     }
@@ -2002,6 +2436,47 @@ const FloorPlanEditor = () => {
     if (dragRef.current) {
       const d = dragRef.current;
       const dx = wx - d.startWX, dy = wy - d.startWY;
+
+      if (d.type === 'rotate') {
+        const curAngle = Math.atan2(sy - d.cy, sx - d.cx);
+        let deg = d.origRotation + (curAngle - d.startAngle) * (180 / Math.PI);
+        if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+        const newRot = ((deg % 360) + 360) % 360;
+        if (d.isRoom) updateRoom(d.id, { rotation: newRot });
+        else          updateFurniture(d.id, { rotation: newRot });
+        forceRender((n) => n + 1);
+        return;
+      }
+
+      if (d.type === 'rotate-multi') {
+        const curAngle = Math.atan2(sy - d.bcy, sx - d.bcx);
+        let deltaDeg = (curAngle - d.startAngle) * (180 / Math.PI);
+        if (e.shiftKey) deltaDeg = Math.round(deltaDeg / 15) * 15;
+        const deltaRad = deltaDeg * Math.PI / 180;
+        const cosA = Math.cos(deltaRad), sinA = Math.sin(deltaRad);
+        const orbitPt = (px, py) => {
+          const ddx = px - d.bboxWCX, ddy = py - d.bboxWCY;
+          return { x: d.bboxWCX + ddx * cosA - ddy * sinA, y: d.bboxWCY + ddx * sinA + ddy * cosA };
+        };
+        for (const [id, orig] of Object.entries(d.origItems)) {
+          if (orig.kind === 'wall') {
+            // Orbit both wall endpoints around group center
+            const np1 = orbitPt(orig.x1, orig.y1);
+            const np2 = orbitPt(orig.x2, orig.y2);
+            updateWall(id, { x1: np1.x, y1: np1.y, x2: np2.x, y2: np2.y });
+          } else {
+            // Orbit item center around the common bbox center
+            const nc = orbitPt(orig.cx, orig.cy);
+            const newX  = nc.x - orig.width / 2;
+            const newY  = nc.y - orig.depth / 2;
+            const newRot = ((orig.rotation + deltaDeg) % 360 + 360) % 360;
+            if (orig.kind === 'furniture') updateFurniture(id, { x: newX, y: newY, rotation: newRot });
+            else updateRoom(id, { x: newX, y: newY, rotation: newRot });
+          }
+        }
+        forceRender((n) => n + 1);
+        return;
+      }
 
       if (d.type === 'wall') {
         // Candidate positions after raw delta
@@ -2031,6 +2506,15 @@ const FloorPlanEditor = () => {
         const snapped = d1 <= d2 ? s1 : s2;
         wallSnapRef.current = snapped.snapped ? snapped : null;
         updateWall(d.id, { x1: nx1, y1: ny1, x2: nx2, y2: ny2 });
+      } else if (d.type === 'wall-join') {
+        // Move all joined endpoints by the same snapped delta
+        const snap = snapWallPoint(wx, wy, rooms, walls, d.joined[0].id);
+        const nx = snap.x, ny = snap.y;
+        for (const ep of d.joined) {
+          if (ep.ep === 1) updateWall(ep.id, { x1: nx, y1: ny });
+          else             updateWall(ep.id, { x2: nx, y2: ny });
+        }
+        wallSnapRef.current = snap.snapped ? snap : null;
       } else if (d.type === 'wall-ep') {
         const snap = snapWallPoint(wx, wy, rooms, walls, d.id);
         let nx = snap.x, ny = snap.y;
@@ -2062,9 +2546,22 @@ const FloorPlanEditor = () => {
           }
         } else {
           for (const [id, orig] of Object.entries(d.origins)) {
-            if (orig.kind === 'furniture') updateFurniture(id, { x: snapVal(orig.x + dx), y: snapVal(orig.y + dy) });
-            else if (orig.kind === 'room') updateRoom(id, { x: snapVal(orig.x + dx), y: snapVal(orig.y + dy) });
-            else if (orig.kind === 'wall') updateWall(id, { x1: snapVal(orig.x1 + dx), y1: snapVal(orig.y1 + dy), x2: snapVal(orig.x2 + dx), y2: snapVal(orig.y2 + dy) });
+            if (orig.kind === 'furniture') {
+              const f = furniture.find((x) => x.id === id);
+              if (!f) continue;
+              const rot = (f.rotation || 0) * Math.PI / 180;
+              const candX = orig.x + dx, candY = orig.y + dy;
+              const snap = snapFurnitureToWalls(candX, candY, f.width, f.depth, rot, rooms);
+              newGuides.push(...snap.guides);
+              // Only allow move if it doesn't overlap other furniture
+              if (!furnitureOverlapsAny(snap.x, snap.y, f.width, f.depth, rot, furniture, id)) {
+                updateFurniture(id, { x: snap.x, y: snap.y });
+              }
+            } else if (orig.kind === 'room') {
+              updateRoom(id, { x: snapVal(orig.x + dx), y: snapVal(orig.y + dy) });
+            } else if (orig.kind === 'wall') {
+              updateWall(id, { x1: snapVal(orig.x1 + dx), y1: snapVal(orig.y1 + dy), x2: snapVal(orig.x2 + dx), y2: snapVal(orig.y2 + dy) });
+            }
           }
         }
         alignGuidesRef.current = newGuides;
@@ -2075,8 +2572,13 @@ const FloorPlanEditor = () => {
       } else if (d.type === 'door') {
         const isHorizontal = d.wall === 'north' || d.wall === 'south';
         const wallLen      = isHorizontal ? d.roomWidth : d.roomHeight;
-        const raw          = d.origOffset + (isHorizontal ? dx : dy);
-        const clamped      = Math.max(0, Math.min(wallLen - d.doorWidth, snapVal(raw)));
+        // Project delta onto the wall direction (accounts for room rotation)
+        const rotRad = (d.roomRotation || 0) * Math.PI / 180;
+        const wallDirX = isHorizontal ?  Math.cos(rotRad) : -Math.sin(rotRad);
+        const wallDirY = isHorizontal ?  Math.sin(rotRad) :  Math.cos(rotRad);
+        const proj = dx * wallDirX + dy * wallDirY;
+        const raw  = d.origOffset + proj;
+        const clamped = Math.max(0, Math.min(wallLen - d.doorWidth, snapVal(raw)));
         updateDoor(d.id, { offset: clamped });
       } else if (d.type === 'fwDoor') {
         // Project mouse delta onto the wall direction to get offset change
@@ -2172,6 +2674,12 @@ const FloorPlanEditor = () => {
 
     // Update hover handle + group hover for cursor
     if (activeTool === 'select' && !dragRef.current && !panRef.current) {
+      const rotOver = !!getRotateHandleAtScreen(sx, sy) || !!getMultiRotateHandleAtScreen(sx, sy);
+      if (rotOver !== hoverRotateRef.current) {
+        hoverRotateRef.current = rotOver;
+        forceRender((n) => n + 1);
+      }
+
       const hit  = getHandleAtScreen(sx, sy);
       const mHit = selectedIds.length > 1 ? getMultiHandleAtScreen(sx, sy) : null;
       const key  = hit?.key ?? mHit?.key ?? null;
@@ -2182,7 +2690,7 @@ const FloorPlanEditor = () => {
 
       // Check if hovering over empty space inside a group rect (no item directly under cursor)
       const overItem = furniture.some((f) => ptInRect(wx, wy, f.x, f.y, f.width, f.depth))
-                    || rooms.some((r) => ptInRect(wx, wy, r.x, r.y, r.width, r.height));
+                    || rooms.some((r) => ptInRotatedRect(wx, wy, r.x, r.y, r.width, r.height, (r.rotation || 0) * Math.PI / 180));
       const overGroup = !overItem && groups.some((g) => {
         const b = getGroupBounds(g);
         return b && wx >= b.minX && wx <= b.maxX && wy >= b.minY && wy <= b.maxY;
@@ -2223,6 +2731,8 @@ const FloorPlanEditor = () => {
       const w2 = toWorld(Math.max(bs.startSX, bs.curSX), Math.max(bs.startSY, bs.curSY));
       const bsW = Math.abs(bs.curSX - bs.startSX);
       const bsH = Math.abs(bs.curSY - bs.startSY);
+      // Ctrl+click (no real drag) — absorb the event so rooms don't get selected
+      if (bsW <= 4 && bsH <= 4 && bs.noRooms) { forceRender((n) => n + 1); return; }
       if (bsW > 4 && bsH > 4) {
         const inBox = (x, y, w, h) => x < w2.x && x + w > w1.x && y < w2.y && y + h > w1.y;
         // Check if any point of a wall segment is inside the box
@@ -2292,9 +2802,12 @@ const FloorPlanEditor = () => {
     activeTool === 'wall'                                   ? 'crosshair' :
     activeTool === 'furniture'                              ? 'copy' :
     activeTool === 'door'                                   ? 'cell' :
+    dragRef.current?.type === 'rotate'                      ? 'grab' :
+    dragRef.current?.type === 'rotate-multi'                ? 'grab' :
     dragRef.current?.type === 'resize'                      ? HANDLE_CURSORS[dragRef.current.key] :
     dragRef.current                                         ? 'move' :
     ctrlHeld && activeTool === 'select'                     ? 'crosshair' :
+    hoverRotateRef.current                                  ? 'grab' :
     hoverWallEpRef.current                                  ? 'crosshair' :
     hoverHandleRef.current                                  ? HANDLE_CURSORS[hoverHandleRef.current] :
     hoverGroupRef.current                                   ? 'grab' :
@@ -2313,7 +2826,7 @@ const FloorPlanEditor = () => {
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
-        onMouseLeave={() => { panRef.current = null; hoverRef.current = null; doorHoverRef.current = null; hoverHandleRef.current = null; wallSnapRef.current = null; }}
+        onMouseLeave={() => { panRef.current = null; hoverRef.current = null; doorHoverRef.current = null; hoverHandleRef.current = null; hoverRotateRef.current = false; wallSnapRef.current = null; }}
         onContextMenu={(e) => e.preventDefault()}
       />
 

@@ -303,6 +303,36 @@ const FloorPlanProperties = () => {
 
             <div style={{ height: 1, background: C.border, margin: '4px 0 12px' }} />
 
+            {/* ── Wall color — shown when selection includes walls ── */}
+            {multiWalls > 0 && (
+              <div style={{
+                marginBottom: 12, padding: '9px 11px', borderRadius: 6,
+                background: C.sectionBg, border: `1px solid ${C.border}`,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                  Wall Color ({multiWalls} wall{multiWalls > 1 ? 's' : ''})
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="color"
+                    defaultValue={(() => {
+                      const firstWall = walls.find((w) => selectedIds.includes(w.id));
+                      return firstWall?.color || '#444444';
+                    })()}
+                    onChange={(e) => {
+                      selectedIds.forEach((id) => {
+                        if (walls.find((w) => w.id === id)) {
+                          updateWall(id, { color: e.target.value });
+                        }
+                      });
+                    }}
+                    style={colorInp}
+                  />
+                  <span style={{ fontSize: 11, color: C.textSub }}>Apply to all selected walls</span>
+                </div>
+              </div>
+            )}
+
             {allLocked
               ? <div style={{
                   padding: '8px 12px', borderRadius: 6, textAlign: 'center',

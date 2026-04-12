@@ -480,13 +480,32 @@ const FloorPlan3DScene = () => {
 
           {!hasContent && <EmptyState />}
 
-          {rooms.map((room) => (
-            <RoomMesh key={room.id} room={room} roomDoors={doorsByRoom[room.id] || []} allRooms={rooms} allDoors={doors} />
-          ))}
+          {rooms.map((room) => {
+            const rotRad = (room.rotation || 0) * Math.PI / 180;
+            const cx = room.x + room.width / 2;
+            const cz = room.y + room.height / 2;
+            return (
+              <group key={room.id} position={[cx, 0, cz]} rotation={[0, -rotRad, 0]}>
+                <group position={[-cx, 0, -cz]}>
+                  <RoomMesh room={room} roomDoors={doorsByRoom[room.id] || []} allRooms={rooms} allDoors={doors} />
+                </group>
+              </group>
+            );
+          })}
 
           {doors.map((door) => {
             const room = rooms.find((r) => r.id === door.roomId);
-            return room ? <DoorMesh key={door.id} door={door} room={room} /> : null;
+            if (!room) return null;
+            const dRotRad = (room.rotation || 0) * Math.PI / 180;
+            const dcx = room.x + room.width / 2;
+            const dcz = room.y + room.height / 2;
+            return (
+              <group key={door.id} position={[dcx, 0, dcz]} rotation={[0, -dRotRad, 0]}>
+                <group position={[-dcx, 0, -dcz]}>
+                  <DoorMesh door={door} room={room} />
+                </group>
+              </group>
+            );
           })}
 
           {walls && walls.map((wall) => (

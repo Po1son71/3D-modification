@@ -6,7 +6,9 @@
       "Read(//c/Users/shres/.claude/projects/c--Users-shres-Downloads-3d-layout-editor/**)",
       "Bash(npx vite:*)",
       "Bash(npx tsc:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(node --input-type=module)",
+      "Bash(npx --yes acorn --ecma2020 --module src/components/FloorPlanner/FloorPlanEditor.jsx)"
     ],
     "additionalDirectories": [
       "c:\\Users\\shres\\.claude\\projects\\c--Users-shres-Downloads-3d-layout-editor\\memory"
