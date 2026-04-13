@@ -56,7 +56,7 @@ export const FURNITURE_CATALOG = {
   'Data Center': {
     'Server': {
       'Dell': [
-        { type: 'server-rack', name: 'PowerEdge 42U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 2.0,  modelPath: '/models/server-rack.glb' },
+        { type: 'server-rack', name: 'PowerEdge 42U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 2.0,  modelPath: '/models/dellserver_rack.glb' },
         { type: 'server-rack', name: 'PowerEdge 24U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 1.2,  modelPath: '/models/server-rack.glb' },
         { type: 'server-rack', name: 'PowerEdge 12U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 0.65, modelPath: '/models/server-rack.glb' },
       ],

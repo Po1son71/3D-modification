@@ -907,11 +907,68 @@ const FloorPlanEditor = () => {
         const sh2 = room.height * PPM * scale;
         const rot = ((room.rotation || 0) * Math.PI) / 180;
         const rcx = sp.x + sw2 / 2, rcy = sp.y + sh2 / 2;
-        ctx.save();
-        if (rot) { ctx.translate(rcx, rcy); ctx.rotate(rot); ctx.translate(-sw2 / 2, -sh2 / 2); }
-        else     { ctx.translate(sp.x, sp.y); }
-        drawHandles(ctx, 0, 0, sw2, sh2);
-        ctx.restore();
+        if (room.polygon && room.polygon.length >= 3) {
+          // Polygon room: draw vertex circles and edge-midpoint diamonds
+          const hov = hoverHandleRef.current;
+          const poly = room.polygon;
+          const cosA = Math.cos(rot), sinA = Math.sin(rot);
+          const rotPoly = (px, py) => {
+            const dx = px - (room.x + room.width / 2), dy = py - (room.y + room.height / 2);
+            return toScreen(
+              room.x + room.width / 2 + dx * cosA - dy * sinA,
+              room.y + room.height / 2 + dx * sinA + dy * cosA
+            );
+          };
+          // Dashed outline
+          ctx.beginPath();
+          const p0s = rotPoly(poly[0].x, poly[0].y);
+          ctx.moveTo(p0s.x, p0s.y);
+          for (let i = 1; i < poly.length; i++) {
+            const ps = rotPoly(poly[i].x, poly[i].y);
+            ctx.lineTo(ps.x, ps.y);
+          }
+          ctx.closePath();
+          ctx.strokeStyle = '#1976D2'; ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+          // Vertex handles (circles)
+          for (let i = 0; i < poly.length; i++) {
+            const ps = rotPoly(poly[i].x, poly[i].y);
+            const isHot = hov === `v${i}`;
+            ctx.shadowColor = 'rgba(0,0,0,0.22)'; ctx.shadowBlur = isHot ? 6 : 3;
+            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
+            ctx.beginPath(); ctx.arc(ps.x, ps.y, HANDLE_CORNER, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 2;
+            ctx.beginPath(); ctx.arc(ps.x, ps.y, HANDLE_CORNER, 0, Math.PI * 2); ctx.stroke();
+          }
+          // Edge-midpoint handles (diamonds)
+          for (let i = 0; i < poly.length; i++) {
+            const j = (i + 1) % poly.length;
+            const mx = (poly[i].x + poly[j].x) / 2, my = (poly[i].y + poly[j].y) / 2;
+            const ms = rotPoly(mx, my);
+            const isHot = hov === `e${i}`;
+            const hs = HANDLE_EDGE + 1;
+            ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = isHot ? 5 : 2;
+            ctx.fillStyle = isHot ? '#1976D2' : '#fff';
+            ctx.beginPath();
+            ctx.moveTo(ms.x, ms.y - hs); ctx.lineTo(ms.x + hs, ms.y);
+            ctx.lineTo(ms.x, ms.y + hs); ctx.lineTo(ms.x - hs, ms.y);
+            ctx.closePath(); ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = isHot ? '#0D47A1' : '#1976D2'; ctx.lineWidth = isHot ? 2.5 : 1.5;
+            ctx.beginPath();
+            ctx.moveTo(ms.x, ms.y - hs); ctx.lineTo(ms.x + hs, ms.y);
+            ctx.lineTo(ms.x, ms.y + hs); ctx.lineTo(ms.x - hs, ms.y);
+            ctx.closePath(); ctx.stroke();
+          }
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.save();
+          if (rot) { ctx.translate(rcx, rcy); ctx.rotate(rot); ctx.translate(-sw2 / 2, -sh2 / 2); }
+          else     { ctx.translate(sp.x, sp.y); }
+          drawHandles(ctx, 0, 0, sw2, sh2);
+          ctx.restore();
+        }
         // Rotation handle
         const { rhx, rhy } = getRotateHandleScreen(room);
         const tcx = rcx - (sh2 / 2) * Math.sin(rot);
@@ -1368,11 +1425,12 @@ const FloorPlanEditor = () => {
       ctx.closePath();
       ctx.stroke();
 
-      // Label — centred on bounding box centre
+      // Label — centred on bounding box centre, hidden while rotating
+      const isRotatingPoly = dragRef.current?.type === 'rotate' || dragRef.current?.type === 'rotate-multi';
       const bb = polyBoundingBox(poly);
       const csp = toScreen(bb.x + bb.width / 2, bb.y + bb.height / 2);
       const bbSW = bb.width * PPM * sc, bbSH = bb.height * PPM * sc;
-      if (bbSW > 50 && bbSH > 28) {
+      if (!isRotatingPoly && bbSW > 50 && bbSH > 28) {
         ctx.fillStyle    = isSel ? '#1565C0' : 'rgba(0,0,0,0.45)';
         ctx.font         = `${Math.max(10, 12 * sc)}px sans-serif`;
         ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
@@ -1437,27 +1495,36 @@ const FloorPlanEditor = () => {
         }
       }
 
-      // Label
-      if (sw > 50 && sh > 28) {
+      // Label — hide while actively rotating; always render readable (never upside-down)
+      const isRotating = dragRef.current?.type === 'rotate' || dragRef.current?.type === 'rotate-multi';
+      if (!isRotating && sw > 50 && sh > 28) {
+        // Flip text rotation so it stays in the readable half-circle (top → bottom)
+        const normDeg = ((rot * 180 / Math.PI) % 360 + 360) % 360;
+        const textRot = (normDeg > 90 && normDeg < 270) ? rot + Math.PI : rot;
         ctx.fillStyle    = isSel ? '#1565C0' : 'rgba(0,0,0,0.45)';
         ctx.font         = `${Math.max(10, 12 * sc)}px sans-serif`;
         ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
-        ctx.save(); ctx.translate(rcx, rcy); ctx.rotate(rot);
+        ctx.save(); ctx.translate(rcx, rcy); ctx.rotate(textRot);
         ctx.fillText(room.name, 0, 0);
         ctx.restore();
       }
 
-      // Dimension labels when selected
-      if (isSel && sw > 60) {
+      // Dimension labels when selected — also hidden while rotating, also kept readable
+      if (!isRotating && isSel && sw > 60) {
+        const normDeg = ((rot * 180 / Math.PI) % 360 + 360) % 360;
+        const flip    = normDeg > 90 && normDeg < 270;
         ctx.fillStyle = '#1565C0';
         ctx.font = `${Math.max(9, 10 * sc)}px sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         const wlp = toScreen(rwcx, room.y);
-        ctx.save(); ctx.translate(wlp.x, wlp.y); ctx.rotate(rot);
+        ctx.save(); ctx.translate(wlp.x, wlp.y); ctx.rotate(flip ? rot + Math.PI : rot);
         ctx.fillText(`${room.width.toFixed(2)}m`, 0, -wt / 2 - 8 * sc);
         ctx.restore();
         const hlp = toScreen(room.x, rwcy);
-        ctx.save(); ctx.translate(hlp.x, hlp.y); ctx.rotate(rot - Math.PI / 2);
+        const hRot = rot - Math.PI / 2;
+        const hNormDeg = ((hRot * 180 / Math.PI) % 360 + 360) % 360;
+        const hFlip = hNormDeg > 90 && hNormDeg < 270;
+        ctx.save(); ctx.translate(hlp.x, hlp.y); ctx.rotate(hFlip ? hRot + Math.PI : hRot);
         ctx.fillText(`${room.height.toFixed(2)}m`, 0, -wt / 2 - 8 * sc);
         ctx.restore();
       }
@@ -1726,6 +1793,20 @@ const FloorPlanEditor = () => {
     return Math.abs(lx) <= rw / 2 && Math.abs(ly) <= rh / 2;
   };
 
+  const ptInRoom = (wx, wy, r) => {
+    if (r.polygon && r.polygon.length >= 3) {
+      const rot = (r.rotation || 0) * Math.PI / 180;
+      if (!rot) return ptInPolygon(wx, wy, r.polygon);
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      const cos = Math.cos(-rot), sin = Math.sin(-rot);
+      const dx = wx - cx, dy = wy - cy;
+      const lx = cx + dx * cos - dy * sin;
+      const ly = cy + dx * sin + dy * cos;
+      return ptInPolygon(lx, ly, r.polygon);
+    }
+    return ptInRotatedRect(wx, wy, r.x, r.y, r.width, r.height, (r.rotation || 0) * Math.PI / 180);
+  };
+
   // Returns world-space bounding box of a group (including outline padding), or null
   const getGroupBounds = useCallback((group) => {
     const PAD = 0.18;
@@ -1762,13 +1843,41 @@ const FloorPlanEditor = () => {
     const furn = furniture.find((f) => f.id === selectedId);
     const item = room || furn;
     if (!item) return null;
+    const t = HANDLE_TOL;
+
+    // Polygon room: vertex and edge-midpoint handles
+    if (room && room.polygon && room.polygon.length >= 3) {
+      const poly = room.polygon;
+      const rot  = (room.rotation || 0) * Math.PI / 180;
+      const cosA = Math.cos(rot), sinA = Math.sin(rot);
+      const rcx  = room.x + room.width / 2, rcy = room.y + room.height / 2;
+      const rotPoly = (px, py) => {
+        const dx = px - rcx, dy = py - rcy;
+        return toScreen(rcx + dx * cosA - dy * sinA, rcy + dx * sinA + dy * cosA);
+      };
+      let best = null, bestDist = Infinity;
+      // Vertex handles
+      for (let i = 0; i < poly.length; i++) {
+        const ps = rotPoly(poly[i].x, poly[i].y);
+        const d  = Math.hypot(sx - ps.x, sy - ps.y);
+        if (d < t && d < bestDist) { bestDist = d; best = { key: `v${i}`, hx: ps.x, hy: ps.y, isRoom: true, isPolyVertex: true, vertexIdx: i }; }
+      }
+      // Edge-midpoint handles (lower priority than vertices)
+      for (let i = 0; i < poly.length; i++) {
+        const j  = (i + 1) % poly.length;
+        const ms = rotPoly((poly[i].x + poly[j].x) / 2, (poly[i].y + poly[j].y) / 2);
+        const d  = Math.hypot(sx - ms.x, sy - ms.y);
+        if (d < t && d < bestDist) { bestDist = d; best = { key: `e${i}`, hx: ms.x, hy: ms.y, isRoom: true, isPolyEdge: true, edgeIdx: i }; }
+      }
+      return best;
+    }
+
     const iw  = item.width, ih = room ? item.height : item.depth;
     const sp  = toScreen(item.x, item.y);
     const sw  = iw * PPM * scaleRef.current;
     const sh  = ih * PPM * scaleRef.current;
     const rot = ((item.rotation || 0) * Math.PI) / 180;
     const cx  = sp.x + sw / 2, cy = sp.y + sh / 2;
-    const t   = HANDLE_TOL;
 
     // Local (unrotated) handle positions then rotate around item center
     const raw = [
@@ -2132,7 +2241,7 @@ const FloorPlanEditor = () => {
             const f2 = storeState.furniture.find((x) => x.id === id);
             const r2 = storeState.rooms.find((x) => x.id === id);
             if (f2) origins[id] = { x: f2.x, y: f2.y, kind: 'furniture' };
-            else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room' };
+            else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room', polygon: r2.polygon ? r2.polygon.map((v) => ({ ...v })) : null };
             else { const w2 = storeState.walls && storeState.walls.find((x) => x.id === id); if (w2) origins[id] = { x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2, kind: 'wall' }; }
           }
           if (Object.keys(origins).length > 0) {
@@ -2189,7 +2298,25 @@ const FloorPlanEditor = () => {
       const handleHit = getHandleAtScreen(sx, sy);
       if (handleHit) {
         useFloorPlannerStore.getState()._pushHistory();
-        dragRef.current = { type: 'resize', ...handleHit, startWX: wx, startWY: wy };
+        if (handleHit.isPolyVertex) {
+          const room = rooms.find((r) => r.id === selectedId);
+          dragRef.current = { type: 'room-vertex', id: selectedId, vertexIdx: handleHit.vertexIdx, origPoly: room.polygon.map((v) => ({ ...v })), startWX: wx, startWY: wy };
+        } else if (handleHit.isPolyEdge) {
+          const room = rooms.find((r) => r.id === selectedId);
+          const idx  = handleHit.edgeIdx;
+          const j    = (idx + 1) % room.polygon.length;
+          // Insert two new vertices by splitting the edge
+          const newPoly = [...room.polygon];
+          const v0 = room.polygon[idx], v1 = room.polygon[j];
+          const mx = (v0.x + v1.x) / 2, my = (v0.y + v1.y) / 2;
+          // Insert at idx+1: [v0, midL, midR, v1] → insert two copies of mid at idx+1
+          newPoly.splice(idx + 1, 0, { x: mx, y: my }, { x: mx, y: my });
+          updateRoom(selectedId, { polygon: newPoly, ...polyBoundingBox(newPoly) });
+          // Now drag both new vertices (idx+1 and idx+2) together — treat as a new vertex pair
+          dragRef.current = { type: 'room-edge-extrude', id: selectedId, vi: idx + 1, vj: idx + 2, origPoly: newPoly.map((v) => ({ ...v })), startWX: wx, startWY: wy };
+        } else {
+          dragRef.current = { type: 'resize', ...handleHit, startWX: wx, startWY: wy };
+        }
         return;
       }
 
@@ -2245,7 +2372,7 @@ const FloorPlanEditor = () => {
             const f2 = storeState.furniture.find((x) => x.id === id);
             const r2 = storeState.rooms.find((x) => x.id === id);
             if (f2) origins[id] = { x: f2.x, y: f2.y, kind: 'furniture' };
-            else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room' };
+            else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room', polygon: r2.polygon ? r2.polygon.map((v) => ({ ...v })) : null };
             else { const w2 = storeState.walls && storeState.walls.find((x) => x.id === id); if (w2) origins[id] = { x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2, kind: 'wall' }; }
           }
           dragRef.current = { type: 'multi', origins, startWX: wx, startWY: wy };
@@ -2340,7 +2467,7 @@ const FloorPlanEditor = () => {
               const f2 = storeState.furniture.find((x) => x.id === id);
               const r2 = storeState.rooms.find((x) => x.id === id);
               if (f2) origins[id] = { x: f2.x, y: f2.y, kind: 'furniture' };
-              else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room' };
+              else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room', polygon: r2.polygon ? r2.polygon.map((v) => ({ ...v })) : null };
             }
             dragRef.current = { type: 'multi', origins, startWX: wx, startWY: wy };
           }
@@ -2352,7 +2479,7 @@ const FloorPlanEditor = () => {
       let roomHit = null;
       for (let i = rooms.length - 1; i >= 0; i--) {
         const r = rooms[i];
-        if (ptInRotatedRect(wx, wy, r.x, r.y, r.width, r.height, (r.rotation || 0) * Math.PI / 180)) { roomHit = r; break; }
+        if (ptInRoom(wx, wy, r)) { roomHit = r; break; }
       }
       if (roomHit) {
         const hitGroup = groups.find((g) => g.itemIds.includes(roomHit.id));
@@ -2370,7 +2497,7 @@ const FloorPlanEditor = () => {
             const f2 = storeState.furniture.find((x) => x.id === id);
             const r2 = storeState.rooms.find((x) => x.id === id);
             if (f2) origins[id] = { x: f2.x, y: f2.y, kind: 'furniture' };
-            else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room' };
+            else if (r2) origins[id] = { x: r2.x, y: r2.y, kind: 'room', polygon: r2.polygon ? r2.polygon.map((v) => ({ ...v })) : null };
             else { const w2 = storeState.walls && storeState.walls.find((x) => x.id === id); if (w2) origins[id] = { x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2, kind: 'wall' }; }
           }
           dragRef.current = { type: 'multi', origins, startWX: wx, startWY: wy };
@@ -2558,13 +2685,34 @@ const FloorPlanEditor = () => {
                 updateFurniture(id, { x: snap.x, y: snap.y });
               }
             } else if (orig.kind === 'room') {
-              updateRoom(id, { x: snapVal(orig.x + dx), y: snapVal(orig.y + dy) });
+              const nx = snapVal(orig.x + dx), ny = snapVal(orig.y + dy);
+              const rdx = nx - orig.x, rdy = ny - orig.y;
+              const roomObj = rooms.find((r) => r.id === id);
+              if (roomObj && roomObj.polygon) {
+                const newPoly = orig.polygon.map((v) => ({ x: v.x + rdx, y: v.y + rdy }));
+                updateRoom(id, { x: nx, y: ny, polygon: newPoly });
+              } else {
+                updateRoom(id, { x: nx, y: ny });
+              }
             } else if (orig.kind === 'wall') {
               updateWall(id, { x1: snapVal(orig.x1 + dx), y1: snapVal(orig.y1 + dy), x2: snapVal(orig.x2 + dx), y2: snapVal(orig.y2 + dy) });
             }
           }
         }
         alignGuidesRef.current = newGuides;
+      } else if (d.type === 'room-vertex') {
+        const newPoly = d.origPoly.map((v) => ({ ...v }));
+        newPoly[d.vertexIdx] = { x: snapVal(wx), y: snapVal(wy) };
+        const bb = polyBoundingBox(newPoly);
+        updateRoom(d.id, { polygon: newPoly, ...bb });
+      } else if (d.type === 'room-edge-extrude') {
+        const newPoly = d.origPoly.map((v) => ({ ...v }));
+        const ddx = snapVal(wx) - snapVal(d.startWX);
+        const ddy = snapVal(wy) - snapVal(d.startWY);
+        newPoly[d.vi] = { x: d.origPoly[d.vi].x + ddx, y: d.origPoly[d.vi].y + ddy };
+        newPoly[d.vj] = { x: d.origPoly[d.vj].x + ddx, y: d.origPoly[d.vj].y + ddy };
+        const bb = polyBoundingBox(newPoly);
+        updateRoom(d.id, { polygon: newPoly, ...bb });
       } else if (d.type === 'multi-resize') {
         applyMultiResize(d, wx, wy);
       } else if (d.type === 'resize') {
@@ -2690,7 +2838,7 @@ const FloorPlanEditor = () => {
 
       // Check if hovering over empty space inside a group rect (no item directly under cursor)
       const overItem = furniture.some((f) => ptInRect(wx, wy, f.x, f.y, f.width, f.depth))
-                    || rooms.some((r) => ptInRotatedRect(wx, wy, r.x, r.y, r.width, r.height, (r.rotation || 0) * Math.PI / 180));
+                    || rooms.some((r) => ptInRoom(wx, wy, r));
       const overGroup = !overItem && groups.some((g) => {
         const b = getGroupBounds(g);
         return b && wx >= b.minX && wx <= b.maxX && wy >= b.minY && wy <= b.maxY;
@@ -2809,7 +2957,8 @@ const FloorPlanEditor = () => {
     ctrlHeld && activeTool === 'select'                     ? 'crosshair' :
     hoverRotateRef.current                                  ? 'grab' :
     hoverWallEpRef.current                                  ? 'crosshair' :
-    hoverHandleRef.current                                  ? HANDLE_CURSORS[hoverHandleRef.current] :
+    hoverHandleRef.current && HANDLE_CURSORS[hoverHandleRef.current] ? HANDLE_CURSORS[hoverHandleRef.current] :
+    hoverHandleRef.current                                  ? 'move' :
     hoverGroupRef.current                                   ? 'grab' :
     'default';
 
