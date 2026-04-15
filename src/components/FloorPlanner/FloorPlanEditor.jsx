@@ -27,8 +27,8 @@ const contrastColor = (hex) => {
 };
 
 // ── Furniture symbol icons ────────────────────────────────────────────────────
-function drawFurnitureSymbol(ctx, type, sw, sh, sc) {
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+function drawFurnitureSymbol(ctx, type, sw, sh, sc, symColor = 'rgba(0,0,0,0.25)') {
+  ctx.strokeStyle = symColor;
   ctx.lineWidth = Math.max(0.5, sc * 0.5);
 
   if (type === 'sofa' || type === 'armchair') {
@@ -58,7 +58,7 @@ function drawFurnitureSymbol(ctx, type, sw, sh, sc) {
     ctx.moveTo(0, 0); ctx.lineTo(sw * 0.3, 0);
     ctx.moveTo(0, 0); ctx.lineTo(0, sh * 0.3);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillStyle = symColor;
     ctx.beginPath(); ctx.arc(sw * 0.15, sh * 0.15, Math.min(4 * sc, Math.min(sw, sh) * 0.08), 0, Math.PI * 2); ctx.fill();
   } else if (type === 'desk' || type === 'l-desk') {
     ctx.strokeRect(sw * 0.3, sh * 0.1, sw * 0.4, sh * 0.25);
@@ -77,15 +77,43 @@ function drawFurnitureSymbol(ctx, type, sw, sh, sc) {
 function findNearestWall(wx, wy, rooms, maxDist = 1.2) {
   let best = null, bestDist = Infinity;
 
-  for (const room of rooms) {
+  // Rotation-aware point-in-room check (mirrors the component's ptInRoom logic).
+  const isInsideRoom = (room) => {
+    const rotRad = (room.rotation || 0) * Math.PI / 180;
+    if (room.polygon && room.polygon.length >= 3) {
+      if (!rotRad) return ptInPolygon(wx, wy, room.polygon);
+      const cx = room.x + room.width / 2, cy = room.y + room.height / 2;
+      const cos = Math.cos(-rotRad), sin = Math.sin(-rotRad);
+      const ddx = wx - cx, ddy = wy - cy;
+      return ptInPolygon(cx + ddx * cos - ddy * sin, cy + ddx * sin + ddy * cos, room.polygon);
+    }
+    if (!rotRad) return wx >= room.x && wx <= room.x + room.width && wy >= room.y && wy <= room.y + room.height;
+    const cx = room.x + room.width / 2, cy = room.y + room.height / 2;
+    const cos = Math.cos(-rotRad), sin = Math.sin(-rotRad);
+    const ddx = wx - cx, ddy = wy - cy;
+    const lx = ddx * cos - ddy * sin, ly = ddx * sin + ddy * cos;
+    return Math.abs(lx) <= room.width / 2 && Math.abs(ly) <= room.height / 2;
+  };
+
+  // If the cursor is inside a room, restrict the search to that room's walls.
+  // This prevents an adjacent room's wall from winning purely on distance.
+  const containingRoom = rooms.find(isInsideRoom);
+  const searchRooms = containingRoom ? [containingRoom] : rooms;
+
+  for (const room of searchRooms) {
     for (const wall of ['north', 'south', 'east', 'west']) {
-      const { start, end, len } = getWallEndpoints(room, wall);
+      // getWallEndpoints returns LOCAL (unrotated) endpoints; rotate to world space.
+      const { start: s0, end: e0, len } = getWallEndpoints(room, wall);
+      const start = rotateAboutRoomCenter(room, s0.x, s0.y);
+      const end   = rotateAboutRoomCenter(room, e0.x, e0.y);
       const dx = end.x - start.x, dy = end.y - start.y;
+      // len*len == dx²+dy² (rotation preserves length), so the denominator is correct.
       const t = Math.max(0, Math.min(1, ((wx - start.x) * dx + (wy - start.y) * dy) / (len * len)));
       const px = start.x + t * dx, py = start.y + t * dy;
       const dist = Math.hypot(wx - px, wy - py);
       if (dist < bestDist && dist < maxDist) {
         bestDist = dist;
+        // t*len is the local-space offset (rotation preserves arc length along wall).
         const rawOffset = t * len;
         const clampedOffset = snapVal(
           Math.max(0, Math.min(len - DEFAULT_DOOR_WIDTH, rawOffset - DEFAULT_DOOR_WIDTH / 2))
@@ -102,62 +130,24 @@ function findNearestWall(wx, wy, rooms, maxDist = 1.2) {
 // Snaps edges and corners to other rooms within ROOM_SNAP_DIST metres.
 const ROOM_SNAP_DIST = 0.2; // metres — how close an edge must be before it snaps
 
-function snapRoomPosition(rx, ry, rw, rh, rooms, excludeId) {
-  // Candidate edges of the moving room (world coords)
-  const edges = {
-    left:   rx,
-    right:  rx + rw,
-    top:    ry,
-    bottom: ry + rh,
-    centerX: rx + rw / 2,
-    centerY: ry + rh / 2,
-  };
+// ── Rotation helpers (module-level, used by snap/placement functions) ─────────
+function rotateAboutRoomCenter(room, px, py) {
+  const rotRad = (room.rotation || 0) * Math.PI / 180;
+  if (!rotRad) return { x: px, y: py };
+  const cx = room.x + room.width / 2, cy = room.y + room.height / 2;
+  const cosA = Math.cos(rotRad), sinA = Math.sin(rotRad);
+  const dx = px - cx, dy = py - cy;
+  return { x: cx + dx * cosA - dy * sinA, y: cy + dx * sinA + dy * cosA };
+}
 
-  let bestX = null, bestXDist = ROOM_SNAP_DIST;
-  let bestY = null, bestYDist = ROOM_SNAP_DIST;
-
-  for (const r of rooms) {
-    if (r.id === excludeId) continue;
-    const targets = {
-      xVals: [r.x, r.x + r.width, r.x + r.width / 2],
-      yVals: [r.y, r.y + r.height, r.y + r.height / 2],
-    };
-
-    // X-axis snaps: each edge of moving room vs each edge of target
-    const myXEdges   = [edges.left, edges.right, edges.centerX];
-    for (const myE of myXEdges) {
-      for (const tE of targets.xVals) {
-        const d = Math.abs(myE - tE);
-        if (d < bestXDist) {
-          bestXDist = d;
-          // Shift rx so that myE aligns to tE
-          bestX = { snapVal: tE, delta: tE - myE, kind: 'edge' };
-        }
-      }
-    }
-
-    // Y-axis snaps
-    const myYEdges = [edges.top, edges.bottom, edges.centerY];
-    for (const myE of myYEdges) {
-      for (const tE of targets.yVals) {
-        const d = Math.abs(myE - tE);
-        if (d < bestYDist) {
-          bestYDist = d;
-          bestY = { snapVal: tE, delta: tE - myE, kind: 'edge' };
-        }
-      }
-    }
-  }
-
-  const nx = bestX ? rx + bestX.delta : snapVal(rx);
-  const ny = bestY ? ry + bestY.delta : snapVal(ry);
-
-  // Build alignment guides
-  const guides = [];
-  if (bestX) guides.push({ axis: 'x', value: bestX.snapVal });
-  if (bestY) guides.push({ axis: 'y', value: bestY.snapVal });
-
-  return { x: nx, y: ny, guides, snappedX: !!bestX, snappedY: !!bestY };
+function getRoomWorldCorners(room) {
+  const { x, y, width: w, height: h } = room;
+  return [
+    rotateAboutRoomCenter(room, x,     y),
+    rotateAboutRoomCenter(room, x + w, y),
+    rotateAboutRoomCenter(room, x + w, y + h),
+    rotateAboutRoomCenter(room, x,     y + h),
+  ];
 }
 
 // ── Polygon room helpers ──────────────────────────────────────────────────────
@@ -201,51 +191,6 @@ function ptInPolygon(px, py, poly) {
 // ── Furniture snap: room wall faces + other furniture edges ───────────────────
 // Snaps any axis-aligned edge of the furniture bounding box to the nearest snap
 // target. Only works for unrotated furniture — rotated items snap to grid only.
-const FURN_SNAP = 0.3; // metres threshold
-
-function snapFurnitureToEdges(fx, fy, fw, fd, rot, rooms, allFurniture, excludeId) {
-  if (rot) return { x: snapVal(fx), y: snapVal(fy), guides: [] }; // rotated: grid only
-
-  const edges = { left: fx, right: fx + fw, top: fy, bottom: fy + fd };
-  let bestX = null, bestXDist = FURN_SNAP;
-  let bestY = null, bestYDist = FURN_SNAP;
-  const guides = [];
-
-  const xTargets = [], yTargets = [];
-
-  // Room wall inner + outer faces
-  for (const room of rooms) {
-    const wt = room.wallThickness || 0.15;
-    xTargets.push(room.x + wt, room.x + room.width - wt, room.x, room.x + room.width);
-    yTargets.push(room.y + wt, room.y + room.height - wt, room.y, room.y + room.height);
-  }
-
-  // Other furniture edges
-  for (const f of (allFurniture || [])) {
-    if (f.id === excludeId || f.rotation) continue;
-    xTargets.push(f.x, f.x + f.width);
-    yTargets.push(f.y, f.y + f.depth);
-  }
-
-  for (const t of xTargets) {
-    const dL = Math.abs(edges.left - t);
-    if (dL < bestXDist) { bestXDist = dL; bestX = { val: t, delta: t - edges.left }; }
-    const dR = Math.abs(edges.right - t);
-    if (dR < bestXDist) { bestXDist = dR; bestX = { val: t, delta: t - edges.right }; }
-  }
-  for (const t of yTargets) {
-    const dT = Math.abs(edges.top - t);
-    if (dT < bestYDist) { bestYDist = dT; bestY = { val: t, delta: t - edges.top }; }
-    const dB = Math.abs(edges.bottom - t);
-    if (dB < bestYDist) { bestYDist = dB; bestY = { val: t, delta: t - edges.bottom }; }
-  }
-
-  const nx = bestX ? fx + bestX.delta : snapVal(fx);
-  const ny = bestY ? fy + bestY.delta : snapVal(fy);
-  if (bestX) guides.push({ axis: 'x', value: bestX.val });
-  if (bestY) guides.push({ axis: 'y', value: bestY.val });
-  return { x: nx, y: ny, guides };
-}
 
 // ── Overlap detection helpers ─────────────────────────────────────────────────
 // Returns true if two AABB rectangles overlap (touching edges are OK).
@@ -296,10 +241,7 @@ function snapWallPoint(wx, wy, rooms, walls, excludeWallId) {
 
   // 1. Room corners
   for (const r of rooms) {
-    for (const [cx, cy] of [
-      [r.x, r.y], [r.x + r.width, r.y],
-      [r.x, r.y + r.height], [r.x + r.width, r.y + r.height],
-    ]) {
+    for (const { x: cx, y: cy } of getRoomWorldCorners(r)) {
       const d = Math.hypot(wx - cx, wy - cy);
       if (d < bestDist && d < SNAP_DIST) {
         bestDist = d; best = { x: cx, y: cy, kind: 'corner' };
@@ -307,10 +249,12 @@ function snapWallPoint(wx, wy, rooms, walls, excludeWallId) {
     }
   }
 
-  // 2. Room wall face midpoints + projected closest point on wall line
+  // 2. Room wall face — projected closest point on (rotated) wall line
   for (const r of rooms) {
     for (const wall of ['north', 'south', 'east', 'west']) {
-      const { start, end } = getWallEndpoints(r, wall);
+      const { start: s0, end: e0 } = getWallEndpoints(r, wall);
+      const start = rotateAboutRoomCenter(r, s0.x, s0.y);
+      const end   = rotateAboutRoomCenter(r, e0.x, e0.y);
       const dx = end.x - start.x, dy = end.y - start.y;
       const lenSq = dx * dx + dy * dy;
       if (lenSq < 1e-10) continue;
@@ -493,9 +437,25 @@ const ContextMenu = ({
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
-const FloorPlanEditor = () => {
+const FloorPlanEditor = ({ isDark = false }) => {
   const containerRef = useRef(null);
   const canvasRef    = useRef(null);
+
+  // ── Canvas theme — all drawing colours in one place ─────────────────────────
+  const CTHEME = {
+    canvasBg:      isDark ? '#1a2332'                   : '#DCDCDC',
+    grid1:         isDark ? 'rgba(255,255,255,0.04)'    : 'rgba(0,0,0,0.055)',
+    grid2:         isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.10)',
+    grid3:         isDark ? 'rgba(255,255,255,0.13)'    : 'rgba(0,0,0,0.18)',
+    gridAxis:      isDark ? 'rgba(255,255,255,0.18)'    : 'rgba(0,0,0,0.22)',
+    scaleBg:       isDark ? 'rgba(15,23,42,0.85)'       : 'rgba(255,255,255,0.82)',
+    scaleStroke:   isDark ? '#475569'                   : '#555',
+    scaleText:     isDark ? '#94a3b8'                   : '#333',
+    roomLabel:     isDark ? 'rgba(255,255,255,0.75)'    : 'rgba(0,0,0,0.45)',
+    compassBg:     isDark ? 'rgba(15,23,42,0.85)'       : 'rgba(255,255,255,0.85)',
+    compassBorder: isDark ? 'rgba(255,255,255,0.15)'    : 'rgba(0,0,0,0.18)',
+    furnSymbol:    isDark ? 'rgba(255,255,255,0.3)'     : 'rgba(0,0,0,0.25)',
+  };
 
   const [scale, setScale]           = useState(() => { const c = useFloorPlannerStore.getState().editorCamera; return c?.scale ?? 1.2; });
   const [offset, setOffset]         = useState(() => { const c = useFloorPlannerStore.getState().editorCamera; return c ? { x: c.offsetX, y: c.offsetY } : { x: 180, y: 120 }; });
@@ -701,7 +661,7 @@ const FloorPlanEditor = () => {
     const { width, height } = canvasSize;
 
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#DCDCDC';
+    ctx.fillStyle = CTHEME.canvasBg;
     ctx.fillRect(0, 0, width, height);
 
     drawGrid(ctx, width, height);
@@ -784,7 +744,7 @@ const FloorPlanEditor = () => {
     if (activeTool === 'door' && dh && dh.room) {
       const previewDoor = { id: '__preview__', width: DEFAULT_DOOR_WIDTH, openAngle: 90, hingeSide: 'left', swingIn: true, ...dh };
       ctx.globalAlpha = 0.6;
-      drawDoorSymbol(ctx, previewDoor, dh.room, false);
+      drawDoorSymbol(ctx, previewDoor, dh.room, false, (dh.room.rotation || 0) * Math.PI / 180);
       ctx.globalAlpha = 1;
     }
     // Door placement preview (freestanding wall)
@@ -887,9 +847,9 @@ const FloorPlanEditor = () => {
       ctx.save();
       // Outer ring
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillStyle = CTHEME.compassBg;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 1;
+      ctx.strokeStyle = CTHEME.compassBorder; ctx.lineWidth = 1;
       ctx.stroke();
       // Arrow pointing up (north)
       ctx.fillStyle = '#EF4444';
@@ -1277,14 +1237,14 @@ const FloorPlanEditor = () => {
     };
 
     // Tier 1 — active snap grid (e.g. 5 cm), very faint, only when zoomed in
-    drawLines(gs,    'rgba(0,0,0,0.055)', 0.5);
-    // Tier 2 — quarter-metre lines, slightly stronger
-    drawLines(0.25,  'rgba(0,0,0,0.10)',  0.5);
-    // Tier 3 — 1 m lines, visible at all zoom levels
-    drawLines(1.0,   'rgba(0,0,0,0.18)',  1.0);
+    drawLines(gs,    CTHEME.grid1, 0.5);
+    // Tier 2 — half-cell lines (0.3 m), slightly stronger
+    drawLines(0.3,   CTHEME.grid2, 0.5);
+    // Tier 3 — 0.6 m lines, visible at all zoom levels
+    drawLines(0.6,   CTHEME.grid3, 1.0);
 
     // Origin axes
-    ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = CTHEME.gridAxis; ctx.lineWidth = 1.5;
     if (off.x > 0 && off.x < width)  { ctx.beginPath(); ctx.moveTo(off.x, 0); ctx.lineTo(off.x, height); ctx.stroke(); }
     if (off.y > 0 && off.y < height) { ctx.beginPath(); ctx.moveTo(0, off.y); ctx.lineTo(width, off.y);  ctx.stroke(); }
 
@@ -1298,15 +1258,15 @@ const FloorPlanEditor = () => {
     }
     const barPx = barM * PPM * sc;
     const bx = 18, by = height - 20;
-    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.fillStyle = CTHEME.scaleBg;
     ctx.fillRect(bx - 4, by - 14, barPx + 8, 20);
-    ctx.strokeStyle = '#555'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = CTHEME.scaleStroke; ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(bx, by - 5); ctx.lineTo(bx, by);          // left tick
     ctx.lineTo(bx + barPx, by);                           // bar
     ctx.lineTo(bx + barPx, by - 5);                       // right tick
     ctx.stroke();
-    ctx.fillStyle = '#333';
+    ctx.fillStyle = CTHEME.scaleText;
     ctx.font = `bold ${Math.max(9, 10 * sc)}px sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(barM < 1 ? `${barM * 100 | 0}cm` : `${barM}m`, bx + barPx / 2, by - 1);
@@ -1467,7 +1427,7 @@ const FloorPlanEditor = () => {
       const csp = toScreen(bb.x + bb.width / 2, bb.y + bb.height / 2);
       const bbSW = bb.width * PPM * sc, bbSH = bb.height * PPM * sc;
       if (!isRotatingPoly && bbSW > 50 && bbSH > 28) {
-        ctx.fillStyle    = isSel ? '#1565C0' : 'rgba(0,0,0,0.45)';
+        ctx.fillStyle    = isSel ? '#1565C0' : CTHEME.roomLabel;
         ctx.font         = `${Math.max(10, 12 * sc)}px sans-serif`;
         ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(room.name, csp.x, csp.y);
@@ -1537,7 +1497,7 @@ const FloorPlanEditor = () => {
         // Flip text rotation so it stays in the readable half-circle (top → bottom)
         const normDeg = ((rot * 180 / Math.PI) % 360 + 360) % 360;
         const textRot = (normDeg > 90 && normDeg < 270) ? rot + Math.PI : rot;
-        ctx.fillStyle    = isSel ? '#1565C0' : 'rgba(0,0,0,0.45)';
+        ctx.fillStyle    = isSel ? '#1565C0' : CTHEME.roomLabel;
         ctx.font         = `${Math.max(10, 12 * sc)}px sans-serif`;
         ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
         ctx.save(); ctx.translate(rcx, rcy); ctx.rotate(textRot);
@@ -1795,7 +1755,7 @@ const FloorPlanEditor = () => {
 
     ctx.fillStyle = item.color || '#C8A080';
     ctx.fillRect(0, 0, sw, sd);
-    drawFurnitureSymbol(ctx, item.type, sw, sd, sc);
+    drawFurnitureSymbol(ctx, item.type, sw, sd, sc, CTHEME.furnSymbol);
 
     ctx.strokeStyle = isSel ? '#1565C0' : 'rgba(0,0,0,0.28)';
     ctx.lineWidth   = isSel ? 2 : 1;
@@ -1986,6 +1946,18 @@ const FloorPlanEditor = () => {
     return null;
   };
 
+  // ── Clamp all doors on a room to their wall's valid offset range ─────────────
+  // Called after any room resize so doors can't end up outside the wall.
+  const clampDoorsToRoom = (roomId, newW, newH) => {
+    const state = useFloorPlannerStore.getState();
+    for (const door of state.doors) {
+      if (door.roomId !== roomId) continue;
+      const wallLen = (door.wall === 'north' || door.wall === 'south') ? newW : newH;
+      const maxOff = Math.max(0, wallLen - door.width);
+      if (door.offset > maxOff) updateDoor(door.id, { offset: maxOff });
+    }
+  };
+
   // ── Apply resize given current world mouse position ────────────────────────
   // For rotated furniture: project delta onto local axes and resize from center.
   // For rooms (no rotation): classic corner/edge resize.
@@ -2010,8 +1982,12 @@ const FloorPlanEditor = () => {
         case 's': case 'se': case 'sw': nh = Math.max(MIN, snapVal(drag.origH + localDY)); break;
         case 'n': case 'ne': case 'nw': nh = Math.max(MIN, snapVal(drag.origH - localDY)); break;
       }
-      if (drag.isRoom) updateRoom(selectedId, { x: origCX - nw / 2, y: origCY - nh / 2, width: nw, height: nh });
-      else             updateFurniture(selectedId, { x: origCX - nw / 2, y: origCY - nh / 2, width: nw, depth: nh });
+      if (drag.isRoom) {
+        updateRoom(selectedId, { x: origCX - nw / 2, y: origCY - nh / 2, width: nw, height: nh });
+        clampDoorsToRoom(selectedId, nw, nh);
+      } else {
+        updateFurniture(selectedId, { x: origCX - nw / 2, y: origCY - nh / 2, width: nw, depth: nh });
+      }
       return;
     }
 
@@ -2028,8 +2004,12 @@ const FloorPlanEditor = () => {
       case 'w':  nx = Math.min(sx, drag.origX + drag.origW - MIN); nw = drag.origX + drag.origW - nx; break;
       case 'e':  nw = Math.max(MIN, sx - drag.origX); break;
     }
-    if (drag.isRoom) updateRoom(selectedId, { x: nx, y: ny, width: nw, height: nh });
-    else             updateFurniture(selectedId, { x: nx, y: ny, width: nw, depth: nh });
+    if (drag.isRoom) {
+      updateRoom(selectedId, { x: nx, y: ny, width: nw, height: nh });
+      clampDoorsToRoom(selectedId, nw, nh);
+    } else {
+      updateFurniture(selectedId, { x: nx, y: ny, width: nw, depth: nh });
+    }
   };
 
   // ── Bounding box of all selected non-locked items (world coords) ─────────
@@ -2110,6 +2090,7 @@ const FloorPlanEditor = () => {
         const ncx = nx1 + (orig.x + orig.width  / 2 - ox1) * scaleX;
         const ncy = ny1 + (orig.y + orig.height / 2 - oy1) * scaleY;
         updateRoom(id, { x: ncx - nw / 2, y: ncy - nh / 2, width: nw, height: nh });
+        clampDoorsToRoom(id, nw, nh);
       } else if (orig.type === 'furniture') {
         const nw = Math.max(SNAP, orig.width * scaleX);
         const nd = Math.max(SNAP, orig.depth * scaleY);
@@ -2693,61 +2674,28 @@ const FloorPlanEditor = () => {
         if (d.endpoint === 1) updateWall(d.id, { x1: nx, y1: ny });
         else                   updateWall(d.id, { x2: nx, y2: ny });
       } else if (d.type === 'multi') {
-        const newGuides = [];
-        // Single room drag gets room-to-room snap
-        const singleRoomId = Object.keys(d.origins).length === 1 && d.origins[Object.keys(d.origins)[0]].kind === 'room'
-          ? Object.keys(d.origins)[0] : null;
+        // Snap the delta ONCE so all items move as a rigid group —
+        // per-item snapping / overlap resolution is intentionally skipped here
+        // because it causes each piece to fly to a different position.
+        const sdx = snapVal(d.startWX + dx) - d.startWX;
+        const sdy = snapVal(d.startWY + dy) - d.startWY;
 
-        if (singleRoomId) {
-          const orig = d.origins[singleRoomId];
-          const r = rooms.find((x) => x.id === singleRoomId);
-          if (r) {
-            const candX = orig.x + dx, candY = orig.y + dy;
-            const snap = snapRoomPosition(candX, candY, r.width, r.height, rooms, singleRoomId);
-            updateRoom(singleRoomId, { x: snap.x, y: snap.y });
-            newGuides.push(...snap.guides);
-          }
-        } else {
-          for (const [id, orig] of Object.entries(d.origins)) {
-            if (orig.kind === 'furniture') {
-              const f = furniture.find((x) => x.id === id);
-              if (!f) continue;
-              const rot = (f.rotation || 0) * Math.PI / 180;
-              const candX = orig.x + dx, candY = orig.y + dy;
-              const snap = snapFurnitureToEdges(candX, candY, f.width, f.depth, rot, rooms, furniture, id);
-              newGuides.push(...snap.guides);
-              // Resolve to nearest non-overlapping position (slides along valid axis)
-              const resolved = resolveNoOverlap(snap.x, snap.y, f.width, f.depth, rot, furniture, id, orig.x, orig.y);
-              updateFurniture(id, { x: resolved.x, y: resolved.y });
-            } else if (orig.kind === 'room') {
-              const candRX = snapVal(orig.x + dx), candRY = snapVal(orig.y + dy);
-              const rdx = candRX - orig.x, rdy = candRY - orig.y;
-              const roomObj = rooms.find((r) => r.id === id);
-              // Room-to-room overlap prevention
-              let nx = candRX, ny = candRY;
-              const otherRooms = rooms.filter((r) => r.id !== id);
-              const overlapsRoom = otherRooms.some((r) => roomsOverlap(nx, ny, roomObj.width, roomObj.height, r.x, r.y, r.width, r.height));
-              if (overlapsRoom) {
-                const ox = snapVal(orig.x), oy = snapVal(orig.y);
-                const tryX = otherRooms.some((r) => roomsOverlap(nx, oy, roomObj.width, roomObj.height, r.x, r.y, r.width, r.height));
-                const tryY = otherRooms.some((r) => roomsOverlap(ox, ny, roomObj.width, roomObj.height, r.x, r.y, r.width, r.height));
-                if (!tryX) { ny = oy; }
-                else if (!tryY) { nx = ox; }
-                else { nx = ox; ny = oy; }
-              }
-              if (roomObj && roomObj.polygon) {
-                const fdx = nx - orig.x, fdy = ny - orig.y;
-                const newPoly = orig.polygon.map((v) => ({ x: v.x + fdx, y: v.y + fdy }));
-                updateRoom(id, { x: nx, y: ny, polygon: newPoly });
-              } else {
-                updateRoom(id, { x: nx, y: ny });
-              }
-            } else if (orig.kind === 'wall') {
-              updateWall(id, { x1: snapVal(orig.x1 + dx), y1: snapVal(orig.y1 + dy), x2: snapVal(orig.x2 + dx), y2: snapVal(orig.y2 + dy) });
+        for (const [id, orig] of Object.entries(d.origins)) {
+          if (orig.kind === 'furniture') {
+            updateFurniture(id, { x: orig.x + sdx, y: orig.y + sdy });
+          } else if (orig.kind === 'room') {
+            const nx = orig.x + sdx, ny = orig.y + sdy;
+            if (orig.polygon) {
+              const newPoly = orig.polygon.map((v) => ({ x: v.x + sdx, y: v.y + sdy }));
+              updateRoom(id, { x: nx, y: ny, polygon: newPoly });
+            } else {
+              updateRoom(id, { x: nx, y: ny });
             }
+          } else if (orig.kind === 'wall') {
+            updateWall(id, { x1: orig.x1 + sdx, y1: orig.y1 + sdy, x2: orig.x2 + sdx, y2: orig.y2 + sdy });
           }
         }
-        alignGuidesRef.current = newGuides;
+        alignGuidesRef.current = [];
       } else if (d.type === 'room-vertex') {
         const newPoly = d.origPoly.map((v) => ({ ...v }));
         newPoly[d.vertexIdx] = { x: snapVal(wx), y: snapVal(wy) };
@@ -2798,25 +2746,17 @@ const FloorPlanEditor = () => {
     }
 
     if (drawRef.current) {
-      // Snap cursor to room edges while drawing a new room
+      // Snap cursor to room corners/edges while drawing a new room.
+      // Uses world-space corners so rotated rooms snap correctly.
       const ds = drawRef.current;
       let { x, y } = snapPt(wx, wy);
       const newGuides = [];
       for (const r of rooms) {
-        // X edges
-        for (const ex of [r.x, r.x + r.width]) {
-          if (Math.abs(wx - ex) < ROOM_SNAP_DIST) { x = ex; newGuides.push({ axis: 'x', value: ex }); break; }
-        }
-        // Y edges
-        for (const ey of [r.y, r.y + r.height]) {
-          if (Math.abs(wy - ey) < ROOM_SNAP_DIST) { y = ey; newGuides.push({ axis: 'y', value: ey }); break; }
-        }
-        // Also snap startX/startY to these edges
-        for (const ex of [r.x, r.x + r.width]) {
-          if (Math.abs(ds.startX - ex) < ROOM_SNAP_DIST) newGuides.push({ axis: 'x', value: ex });
-        }
-        for (const ey of [r.y, r.y + r.height]) {
-          if (Math.abs(ds.startY - ey) < ROOM_SNAP_DIST) newGuides.push({ axis: 'y', value: ey });
+        for (const { x: cx, y: cy } of getRoomWorldCorners(r)) {
+          if (Math.abs(wx - cx) < ROOM_SNAP_DIST) { x = cx; newGuides.push({ axis: 'x', value: cx }); }
+          if (Math.abs(wy - cy) < ROOM_SNAP_DIST) { y = cy; newGuides.push({ axis: 'y', value: cy }); }
+          if (Math.abs(ds.startX - cx) < ROOM_SNAP_DIST) newGuides.push({ axis: 'x', value: cx });
+          if (Math.abs(ds.startY - cy) < ROOM_SNAP_DIST) newGuides.push({ axis: 'y', value: cy });
         }
       }
       alignGuidesRef.current = newGuides;
@@ -3032,7 +2972,7 @@ const FloorPlanEditor = () => {
         background: 'rgba(255,255,255,0.92)', padding: '5px 10px', borderRadius: 4,
         fontSize: 12, color: '#666', boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
         pointerEvents: 'none', fontFamily: 'monospace' }}>
-        {Math.round(scale * 100)}% · 1 grid = 1 m
+        {Math.round(scale * 100)}% · 1 grid = 0.6 m
       </div>
 
       {/* Selection count badge */}

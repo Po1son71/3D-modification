@@ -2,11 +2,13 @@ import React, { useState } from "react";
 import DataCenterPage from "./pages/DataCenterPage";
 import WarehousePage from "./pages/WarehousePage";
 import FloorPlannerPage from "./pages/FloorPlannerPage";
+import PowerMapPage from "./pages/PowerMapPage";
 
 const NAV = [
   { id: 'floorplanner', label: '🏠 Floor Planner' },
   { id: 'warehouse',    label: '📦 Warehouse' },
   { id: 'datacenter',  label: '🖥️ Data Center' },
+  { id: 'powermap',    label: '⚡ Power Map' },
 ];
 
 function App() {
@@ -77,6 +79,7 @@ function App() {
         {page === 'floorplanner' && <FloorPlannerPage />}
         {page === 'warehouse'    && <WarehousePage />}
         {page === 'datacenter'   && <DataCenterPage />}
+        {page === 'powermap'     && <PowerMapPage />}
       </div>
     </div>
   );

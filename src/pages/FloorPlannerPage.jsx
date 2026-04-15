@@ -4,42 +4,7 @@ import FloorPlan3DScene from '../components/FloorPlanner/FloorPlan3DScene';
 import FurnitureCatalog from '../components/FloorPlanner/FurnitureCatalog';
 import FloorPlanProperties from '../components/FloorPlanner/FloorPlanProperties';
 import useFloorPlannerStore from '../store/floorPlannerStore';
-
-// ── Design tokens ─────────────────────────────────────────────────────────────
-const C = {
-  navy:        '#0D1B2E',
-  navyMid:     '#162236',
-  accent:      '#0EA5E9',
-  accentDark:  '#0284C7',
-  accentBg:    'rgba(14,165,233,0.15)',
-  white:       '#FFFFFF',
-  bg:          '#EEF2F7',
-  panelBg:     '#FFFFFF',
-  border:      '#E2E8F0',
-  text:        '#1E293B',
-  textSub:     '#64748B',
-  textMuted:   '#94A3B8',
-  danger:      '#EF4444',
-  dangerBg:    'rgba(239,68,68,0.1)',
-  success:     '#22C55E',
-  warning:     '#F59E0B',
-  toolHover:   '#F1F5F9',
-};
-
-// ── Light-mode action button ──────────────────────────────────────────────────
-const LightBtn = ({ onClick, title, children }) => (
-  <button onClick={onClick} title={title} style={{
-    display: 'flex', alignItems: 'center', gap: 5,
-    padding: '5px 11px', borderRadius: 6,
-    border: `1px solid ${C.border}`,
-    background: 'transparent', color: C.textSub,
-    cursor: 'pointer', fontSize: 12, fontWeight: 400,
-    transition: 'all 0.1s', whiteSpace: 'nowrap',
-  }}
-    onMouseEnter={(e) => { e.currentTarget.style.background = C.toolHover; }}
-    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-  >{children}</button>
-);
+import { useFloorTheme } from '../components/FloorPlanner/floorPlanTheme';
 
 // ── Toast notification ────────────────────────────────────────────────────────
 const Toast = ({ msg }) => {
@@ -49,7 +14,7 @@ const Toast = ({ msg }) => {
   return (
     <div style={{
       position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)',
-      background: C.navy, color: C.white,
+      background: '#0D1B2E', color: '#FFFFFF',
       padding: '8px 18px', borderRadius: 6,
       fontSize: 12, fontWeight: 500, letterSpacing: '0.3px',
       boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
@@ -63,14 +28,33 @@ const Toast = ({ msg }) => {
   );
 };
 
+const StatusDot = ({ color }) => (
+  <div style={{
+    width: 6, height: 6, borderRadius: '50%',
+    background: color, boxShadow: `0 0 6px ${color}`,
+  }} />
+);
+
+const StatusItem = ({ label, value, color }) => {
+  const T = useFloorTheme();
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <span style={{ fontSize: 10, color: T.textMuted, letterSpacing: '0.3px' }}>{label}</span>
+      <span style={{ fontSize: 11, color: color || T.textSub, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    </div>
+  );
+};
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 const FloorPlannerPage = () => {
+  const T = useFloorTheme();
   const {
     activeTool, activeFurnitureDef, viewMode,
     selectedIds, lockedIds, clipboard,
     showHeatmap, gridSize,
     setActiveTool, setViewMode,
     undo, redo,
+    isDark, setIsDark,
     lockSelected, unlockSelected,
     copySelected, pasteClipboard,
     exportLayout, importLayout, mergeLayout,
@@ -79,8 +63,8 @@ const FloorPlannerPage = () => {
     undoMsg,
   } = useFloorPlannerStore();
 
-  const jsonInputRef    = useRef(null);
-  const [pendingJson, setPendingJson] = useState(null); // { text, name } waiting for user choice
+  const jsonInputRef = useRef(null);
+  const [pendingJson, setPendingJson] = useState(null);
 
   const handleLoadJson = useCallback((e) => {
     const file = e.target.files[0];
@@ -98,27 +82,37 @@ const FloorPlannerPage = () => {
   const totalArea   = rooms.reduce((a, r) => a + r.width * r.height, 0);
   const sensorCount = furniture.reduce((a, f) => a + (f.sensors?.length || 0), 0);
 
+  /* ── shared micro-button style ─────────────────────────────────────────── */
+  const lightBtn = {
+    display: 'flex', alignItems: 'center', gap: 5,
+    padding: '5px 11px', borderRadius: 6,
+    border: `1px solid ${T.border}`,
+    background: 'transparent', color: T.textSub,
+    cursor: 'pointer', fontSize: 12, fontWeight: 400,
+    transition: 'all 0.1s', whiteSpace: 'nowrap',
+  };
+
   return (
     <div style={{
       width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column',
       overflow: 'hidden', fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
-      background: C.bg,
+      background: T.bg,
     }}>
 
       {/* ── Top header bar ───────────────────────────────────────── */}
       <div style={{
-        height: 50, background: '#FFFFFF',
+        height: 50, background: T.panel,
         display: 'flex', alignItems: 'center',
         padding: '0 14px', gap: 0,
         flexShrink: 0,
-        borderBottom: `1px solid ${C.border}`,
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        borderBottom: `1px solid ${T.border}`,
+        boxShadow: T.isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
         zIndex: 20,
       }}>
         {/* Brand */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginRight: 20,
-          paddingRight: 20, borderRight: `1px solid ${C.border}` }}>
+          paddingRight: 20, borderRight: `1px solid ${T.border}` }}>
           <div style={{
             width: 28, height: 28, borderRadius: 7,
             background: 'linear-gradient(135deg, #0EA5E9 0%, #0369A1 100%)',
@@ -127,10 +121,10 @@ const FloorPlannerPage = () => {
             flexShrink: 0,
           }}>D</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: '0.3px' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, letterSpacing: '0.3px' }}>
               DCIM Studio
             </div>
-            <div style={{ fontSize: 9, color: C.textMuted, marginTop: -1, letterSpacing: '0.6px',
+            <div style={{ fontSize: 9, color: T.textMuted, marginTop: -1, letterSpacing: '0.6px',
               textTransform: 'uppercase' }}>
               Floor Plan Editor
             </div>
@@ -140,8 +134,8 @@ const FloorPlannerPage = () => {
         {/* Tool group */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 2,
-          background: C.toolHover, borderRadius: 8, padding: '3px',
-          border: `1px solid ${C.border}`,
+          background: T.hoverStrong, borderRadius: 8, padding: '3px',
+          border: `1px solid ${T.border}`,
         }}>
           {[
             { id: 'select', label: 'Select', icon: '↖', title: 'Select / move (S)' },
@@ -152,15 +146,15 @@ const FloorPlannerPage = () => {
             <button key={id} onClick={() => setActiveTool(id)} title={title} style={{
               display: 'flex', alignItems: 'center', gap: 5,
               padding: '5px 12px', borderRadius: 6,
-              border: activeTool === id ? `1px solid ${C.accentDark}` : '1px solid transparent',
-              background: activeTool === id ? '#fff' : 'transparent',
-              color: activeTool === id ? C.accentDark : C.textSub,
+              border: activeTool === id ? `1px solid ${T.accentDark}` : '1px solid transparent',
+              background: activeTool === id ? T.panel : 'transparent',
+              color: activeTool === id ? T.accentDark : T.textSub,
               cursor: 'pointer', fontSize: 12,
               fontWeight: activeTool === id ? 600 : 400,
               boxShadow: activeTool === id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
               transition: 'all 0.1s',
             }}
-              onMouseEnter={(e) => { if (activeTool !== id) e.currentTarget.style.background = '#fff'; }}
+              onMouseEnter={(e) => { if (activeTool !== id) e.currentTarget.style.background = T.panel; }}
               onMouseLeave={(e) => { if (activeTool !== id) e.currentTarget.style.background = 'transparent'; }}
             >
               <span>{icon}</span><span>{label}</span>
@@ -171,8 +165,8 @@ const FloorPlannerPage = () => {
             <button onClick={() => setActiveTool('select')} style={{
               display: 'flex', alignItems: 'center', gap: 5,
               padding: '5px 12px', borderRadius: 6,
-              border: `1px solid ${C.accentDark}`,
-              background: C.accentBg, color: C.accentDark,
+              border: `1px solid ${T.accentDark}`,
+              background: T.accentBg, color: T.accentDark,
               cursor: 'pointer', fontSize: 12, fontWeight: 600,
             }}>
               <span>📦</span>
@@ -183,7 +177,7 @@ const FloorPlannerPage = () => {
         </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 22, background: C.border, margin: '0 12px' }} />
+        <div style={{ width: 1, height: 22, background: T.border, margin: '0 12px' }} />
 
         {/* Undo / Redo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -194,63 +188,67 @@ const FloorPlannerPage = () => {
             <button key={label} onClick={action} title={title} style={{
               width: 30, height: 30, borderRadius: 6,
               border: `1px solid transparent`,
-              background: 'transparent', color: C.textSub,
+              background: 'transparent', color: T.textSub,
               cursor: 'pointer', fontSize: 15, display: 'flex',
               alignItems: 'center', justifyContent: 'center', transition: 'all 0.1s',
             }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = C.toolHover; e.currentTarget.style.border = `1px solid ${C.border}`; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = T.hoverStrong; e.currentTarget.style.border = `1px solid ${T.border}`; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.border = '1px solid transparent'; }}
             >{label}</button>
           ))}
         </div>
 
-        <div style={{ width: 1, height: 22, background: C.border, margin: '0 12px' }} />
+        <div style={{ width: 1, height: 22, background: T.border, margin: '0 12px' }} />
 
         {/* 2D actions */}
         {viewMode === '2d' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <LightBtn onClick={copySelected} title="Copy (Ctrl+C)">⎘ Copy</LightBtn>
-            <LightBtn onClick={pasteClipboard} title="Paste (Ctrl+V)">
+            <button onClick={copySelected} title="Copy (Ctrl+C)" style={lightBtn}
+              onMouseEnter={(e) => { e.currentTarget.style.background = T.hoverStrong; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>⎘ Copy</button>
+            <button onClick={pasteClipboard} title="Paste (Ctrl+V)" style={lightBtn}
+              onMouseEnter={(e) => { e.currentTarget.style.background = T.hoverStrong; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
               ⎙ Paste{clipboard?.length > 0 ? ` (${clipboard.length})` : ''}
-            </LightBtn>
+            </button>
 
             {anySelected && anyUnlocked && (
-              <LightBtn onClick={lockSelected} title="Lock selected">🔒</LightBtn>
+              <button onClick={lockSelected} title="Lock selected" style={lightBtn}
+                onMouseEnter={(e) => { e.currentTarget.style.background = T.hoverStrong; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>🔒</button>
             )}
             {anySelected && anyLocked && (
-              <LightBtn onClick={unlockSelected} title="Unlock selected">🔓</LightBtn>
+              <button onClick={unlockSelected} title="Unlock selected" style={lightBtn}
+                onMouseEnter={(e) => { e.currentTarget.style.background = T.hoverStrong; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>🔓</button>
             )}
 
-            <div style={{ width: 1, height: 22, background: C.border, margin: '0 8px' }} />
+            <div style={{ width: 1, height: 22, background: T.border, margin: '0 8px' }} />
 
             <button onClick={toggleHeatmap} title="Toggle thermal heatmap" style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '5px 11px', borderRadius: 6,
-              border: `1px solid ${showHeatmap ? C.accentDark : C.border}`,
-              background: showHeatmap ? C.accentBg : 'transparent',
-              color: showHeatmap ? C.accentDark : C.textSub,
+              border: `1px solid ${showHeatmap ? T.accentDark : T.border}`,
+              background: showHeatmap ? T.accentBg : 'transparent',
+              color: showHeatmap ? T.accentDark : T.textSub,
               cursor: 'pointer', fontSize: 12, fontWeight: showHeatmap ? 600 : 400,
               transition: 'all 0.1s',
             }}
-              onMouseEnter={(e) => { if (!showHeatmap) e.currentTarget.style.background = C.toolHover; }}
+              onMouseEnter={(e) => { if (!showHeatmap) e.currentTarget.style.background = T.hoverStrong; }}
               onMouseLeave={(e) => { if (!showHeatmap) e.currentTarget.style.background = 'transparent'; }}
             >
               <span>🌡</span><span>Thermal</span>
             </button>
 
             <button onClick={cycleGridSize} title="Cycle grid size" style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '5px 11px', borderRadius: 6,
-              border: `1px solid ${C.border}`,
-              background: 'transparent', color: C.textSub,
-              cursor: 'pointer', fontSize: 12, fontWeight: 500,
-              transition: 'all 0.1s',
+              ...lightBtn,
+              fontWeight: 500,
             }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = C.toolHover; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = T.hoverStrong; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               <span>⊞</span>
-              <span>Grid {gridSize < 0.1 ? `${gridSize * 100 | 0}cm` : gridSize < 1 ? `${gridSize * 100 | 0}cm` : '1m'}</span>
+              <span>Grid {gridSize < 0.1 ? `${gridSize * 100 | 0}cm` : gridSize < 1 ? `${gridSize * 100 | 0}cm` : '0.6m'}</span>
             </button>
           </div>
         )}
@@ -262,11 +260,11 @@ const FloorPlannerPage = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 10 }}>
           <button onClick={() => jsonInputRef.current?.click()} title="Import layout" style={{
             padding: '5px 12px', borderRadius: 6, fontSize: 12,
-            border: `1px solid ${C.border}`,
-            background: 'transparent', color: C.textSub,
+            border: `1px solid ${T.border}`,
+            background: 'transparent', color: T.textSub,
             cursor: 'pointer', transition: 'all 0.1s',
           }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = C.toolHover; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = T.hoverStrong; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
           >📂 Import</button>
           <button onClick={exportLayout} title="Export layout" style={{
@@ -281,19 +279,46 @@ const FloorPlannerPage = () => {
             style={{ display: 'none' }} onChange={handleLoadJson} />
         </div>
 
-        {/* View toggle */}
+        {/* Light / Dark segmented toggle */}
         <div style={{
-          display: 'flex', background: C.toolHover,
+          display: 'flex',
+          background: T.hoverStrong,
           borderRadius: 7, padding: 3, gap: 2,
-          border: `1px solid ${C.border}`,
+          border: `1px solid ${T.border}`,
+          marginRight: 8,
+        }}>
+          {[
+            { key: 'light', label: '☀️ Light' },
+            { key: 'dark',  label: '🌙 Dark' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setIsDark(key === 'dark')}
+              style={{
+                padding: '4px 11px', borderRadius: 5, border: 'none',
+                background: isDark === (key === 'dark') ? T.panel : 'transparent',
+                boxShadow: isDark === (key === 'dark') ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                color: isDark === (key === 'dark') ? T.accentDark : T.textMuted,
+                transition: 'all 0.15s',
+              }}
+            >{label}</button>
+          ))}
+        </div>
+
+        {/* View toggle (2D / 3D) */}
+        <div style={{
+          display: 'flex', background: T.hoverStrong,
+          borderRadius: 7, padding: 3, gap: 2,
+          border: `1px solid ${T.border}`,
         }}>
           {['2D', '3D'].map((mode) => (
             <button key={mode} onClick={() => setViewMode(mode.toLowerCase())} style={{
               padding: '4px 16px', borderRadius: 5, border: 'none',
-              background: viewMode === mode.toLowerCase() ? '#fff' : 'transparent',
+              background: viewMode === mode.toLowerCase() ? T.panel : 'transparent',
               boxShadow: viewMode === mode.toLowerCase() ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
               cursor: 'pointer', fontSize: 12, fontWeight: 600,
-              color: viewMode === mode.toLowerCase() ? C.accentDark : C.textMuted,
+              color: viewMode === mode.toLowerCase() ? T.accentDark : T.textMuted,
               transition: 'all 0.15s',
             }}>{mode}</button>
           ))}
@@ -309,15 +334,15 @@ const FloorPlannerPage = () => {
         {/* Canvas */}
         <div style={{
           flex: 1, overflow: 'hidden', position: 'relative',
-          background: C.bg,
+          background: T.bg,
         }}>
-          {viewMode === '2d' ? <FloorPlanEditor /> : <FloorPlan3DScene />}
+          {viewMode === '2d' ? <FloorPlanEditor isDark={isDark} /> : <FloorPlan3DScene />}
 
           {/* Canvas overlay: selection info */}
           {anySelected && viewMode === '2d' && (
             <div style={{
               position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
-              background: C.navy, color: '#fff',
+              background: '#0D1B2E', color: '#fff',
               padding: '5px 14px', borderRadius: 20,
               fontSize: 11, fontWeight: 500, letterSpacing: '0.3px',
               boxShadow: '0 2px 12px rgba(0,0,0,0.25)',
@@ -325,9 +350,9 @@ const FloorPlannerPage = () => {
               border: '1px solid rgba(255,255,255,0.1)',
               pointerEvents: 'none',
             }}>
-              <span style={{ color: C.accent }}>{selCount}</span>
+              <span style={{ color: T.accent }}>{selCount}</span>
               <span style={{ color: 'rgba(255,255,255,0.5)' }}>selected</span>
-              {anyLocked && <span style={{ color: C.warning }}>· 🔒 locked</span>}
+              {anyLocked && <span style={{ color: T.warning }}>· 🔒 locked</span>}
             </div>
           )}
         </div>
@@ -338,28 +363,28 @@ const FloorPlannerPage = () => {
 
       {/* ── Status bar ───────────────────────────────────────────── */}
       <div style={{
-        height: 28, background: '#FFFFFF',
+        height: 28, background: T.panel,
         display: 'flex', alignItems: 'center',
         padding: '0 14px', gap: 10,
         flexShrink: 0,
-        borderTop: `1px solid ${C.border}`,
+        borderTop: `1px solid ${T.border}`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <StatusDot color={C.success} />
-          <span style={{ fontSize: 11, color: C.textMuted, letterSpacing: '0.3px' }}>Ready</span>
+          <StatusDot color={T.success} />
+          <span style={{ fontSize: 11, color: T.textMuted, letterSpacing: '0.3px' }}>Ready</span>
         </div>
 
-        <div style={{ width: 1, height: 14, background: C.border }} />
+        <div style={{ width: 1, height: 14, background: T.border }} />
 
         <StatusItem label="Rooms" value={rooms.length} />
         <StatusItem label="Assets" value={furniture.length} />
         {rooms.length > 0 && <StatusItem label="Area" value={`${totalArea.toFixed(0)} m²`} />}
-        {sensorCount > 0 && <StatusItem label="Sensors" value={sensorCount} color={C.accent} />}
-        {lockedIds.length > 0 && <StatusItem label="Locked" value={lockedIds.length} color={C.warning} />}
+        {sensorCount > 0 && <StatusItem label="Sensors" value={sensorCount} color={T.accent} />}
+        {lockedIds.length > 0 && <StatusItem label="Locked" value={lockedIds.length} color={T.warning} />}
 
         <div style={{ flex: 1 }} />
 
-        <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: '0.5px' }}>
+        <span style={{ fontSize: 10, color: T.textMuted, letterSpacing: '0.5px' }}>
           DCIM STUDIO v1.0
         </span>
       </div>
@@ -370,7 +395,7 @@ const FloorPlannerPage = () => {
       {pendingJson && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 10000,
-          background: 'rgba(0,0,0,0.35)',
+          background: 'rgba(0,0,0,0.45)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
           onClick={() => setPendingJson(null)}
@@ -378,51 +403,49 @@ const FloorPlannerPage = () => {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: '#fff', borderRadius: 10,
-              boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+              background: T.panel, borderRadius: 10,
+              boxShadow: '0 8px 40px rgba(0,0,0,0.25)',
               width: 380, padding: '24px 24px 20px',
-              border: '1px solid #E2E8F0',
+              border: `1px solid ${T.border}`,
             }}
           >
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>
               Import Layout
             </div>
-            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 18 }}>
-              <span style={{ fontWeight: 600, color: '#374151' }}>{pendingJson.name}</span>
+            <div style={{ fontSize: 12, color: T.textSub, marginBottom: 18 }}>
+              <span style={{ fontWeight: 600, color: T.text }}>{pendingJson.name}</span>
               {' '}— how do you want to import?
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-              {/* Option A — Merge */}
               <button
                 onClick={() => { mergeLayout(pendingJson.text); setPendingJson(null); }}
                 style={{
                   padding: '10px 14px', borderRadius: 7, textAlign: 'left',
-                  border: `1px solid ${C.border}`, background: '#F8FAFC',
+                  border: `1px solid ${T.border}`, background: T.panelHeader,
                   cursor: 'pointer', transition: 'all 0.1s',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentBg; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border;  e.currentTarget.style.background = '#F8FAFC'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accentBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.panelHeader; }}
               >
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B' }}>➕ Add to current</div>
-                <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>➕ Add to current</div>
+                <div style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>
                   Imported rooms and assets are placed alongside existing ones. All IDs are re-generated.
                 </div>
               </button>
 
-              {/* Option B — Overwrite */}
               <button
                 onClick={() => { importLayout(pendingJson.text); setPendingJson(null); }}
                 style={{
                   padding: '10px 14px', borderRadius: 7, textAlign: 'left',
-                  border: `1px solid ${C.border}`, background: '#F8FAFC',
+                  border: `1px solid ${T.border}`, background: T.panelHeader,
                   cursor: 'pointer', transition: 'all 0.1s',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.danger; e.currentTarget.style.background = C.dangerBg; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = '#F8FAFC'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.danger; e.currentTarget.style.background = T.dangerBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.panelHeader; }}
               >
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#EF4444' }}>🗑 Overwrite</div>
-                <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.danger }}>🗑 Overwrite</div>
+                <div style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>
                   Current floor plan is discarded and replaced entirely with the imported file.
                 </div>
               </button>
@@ -432,8 +455,8 @@ const FloorPlannerPage = () => {
               onClick={() => setPendingJson(null)}
               style={{
                 width: '100%', padding: '7px', borderRadius: 6,
-                border: `1px solid ${C.border}`, background: 'transparent',
-                color: C.textSub, fontSize: 12, cursor: 'pointer',
+                border: `1px solid ${T.border}`, background: 'transparent',
+                color: T.textSub, fontSize: 12, cursor: 'pointer',
               }}
             >Cancel</button>
           </div>
@@ -442,19 +465,5 @@ const FloorPlannerPage = () => {
     </div>
   );
 };
-
-const StatusDot = ({ color }) => (
-  <div style={{
-    width: 6, height: 6, borderRadius: '50%',
-    background: color, boxShadow: `0 0 6px ${color}`,
-  }} />
-);
-
-const StatusItem = ({ label, value, color }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-    <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: '0.3px' }}>{label}</span>
-    <span style={{ fontSize: 11, color: color || C.textSub, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
-  </div>
-);
 
 export default FloorPlannerPage;

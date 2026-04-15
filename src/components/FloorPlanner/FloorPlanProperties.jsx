@@ -1,5 +1,6 @@
 import React from 'react';
 import useFloorPlannerStore from '../../store/floorPlannerStore';
+import { useFloorTheme } from './floorPlanTheme';
 
 const SENSOR_TYPES = [
   'temperature', 'humidity', 'power', 'current',
@@ -11,152 +12,173 @@ const SENSOR_UNITS = {
   pressure: 'Pa', network: 'Mbps', custom: '',
 };
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
-const C = {
-  navy:       '#0D1B2E',
-  accent:     '#0EA5E9',
-  accentDark: '#0284C7',
-  accentBg:   'rgba(14,165,233,0.08)',
-  border:     '#E2E8F0',
-  bg:         '#F8FAFC',
-  panel:      '#FFFFFF',
-  text:       '#1E293B',
-  textSub:    '#64748B',
-  textMuted:  '#94A3B8',
-  danger:     '#EF4444',
-  dangerBg:   'rgba(239,68,68,0.08)',
-  warning:    '#F59E0B',
-  success:    '#22C55E',
-  sectionBg:  '#F1F5F9',
+// ── Map theme tokens to the legacy C-shape used throughout this file ──────────
+const useC = () => {
+  const T = useFloorTheme();
+  return {
+    navy:       T.navy,
+    accent:     T.accent,
+    accentDark: T.accentDark,
+    accentBg:   T.accentBg,
+    border:     T.border,
+    bg:         T.panelHeader,
+    panel:      T.panel,
+    text:       T.text,
+    textSub:    T.textSub,
+    textMuted:  T.textMuted,
+    danger:     T.danger,
+    dangerBg:   T.dangerBg,
+    warning:    T.warning,
+    success:    T.success,
+    sectionBg:  T.panelHeader,
+    inputBg:    T.inputBg,
+    inputBorder:T.inputBorder,
+    inputText:  T.inputText,
+  };
 };
-
-// ── Shared input style ────────────────────────────────────────────────────────
-const inp = {
-  width: '100%', padding: '6px 8px',
-  border: `1px solid ${C.border}`,
-  borderRadius: 5, fontSize: 12, color: C.text,
-  background: C.panel, boxSizing: 'border-box', outline: 'none',
-  transition: 'border-color 0.1s',
-};
-const colorInp = { ...inp, padding: '2px 3px', height: 32, cursor: 'pointer' };
 
 // ── Field ─────────────────────────────────────────────────────────────────────
-const Field = ({ label, children, row }) => (
-  <div style={{ marginBottom: 10, ...(row ? { display: 'flex', alignItems: 'center', gap: 8 } : {}) }}>
-    <label style={{
-      display: 'block', fontSize: 10, color: C.textMuted, marginBottom: row ? 0 : 3,
-      fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px',
-      flexShrink: row ? 0 : undefined, minWidth: row ? 58 : undefined,
-    }}>
-      {label}
-    </label>
-    {children}
-  </div>
-);
-
-// ── Section header ────────────────────────────────────────────────────────────
-const Section = ({ label, accent, badge, children }) => (
-  <div style={{ marginBottom: 14 }}>
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      padding: '6px 12px',
-      background: C.sectionBg,
-      borderRadius: '6px 6px 0 0',
-      borderTop: `2px solid ${accent || C.border}`,
-      marginBottom: 10,
-    }}>
-      <span style={{
-        fontSize: 10, fontWeight: 700, color: accent || C.textSub,
-        textTransform: 'uppercase', letterSpacing: '0.7px', flex: 1,
-      }}>{label}</span>
-      {badge && (
-        <span style={{
-          fontSize: 10, padding: '1px 6px',
-          background: `${accent}18`, color: accent,
-          borderRadius: 3, fontWeight: 700, border: `1px solid ${accent}30`,
-        }}>{badge}</span>
-      )}
-    </div>
-    {children}
-  </div>
-);
-
-// ── Segmented control ─────────────────────────────────────────────────────────
-const Seg = ({ value, options, onChange }) => (
-  <div style={{
-    display: 'flex', background: C.sectionBg,
-    borderRadius: 6, padding: 2, gap: 2,
-    border: `1px solid ${C.border}`,
-  }}>
-    {options.map(({ val, label }) => (
-      <button key={val} onClick={() => onChange(val)} style={{
-        flex: 1, padding: '5px 4px', border: 'none', borderRadius: 4, cursor: 'pointer',
-        fontSize: 11, fontWeight: value === val ? 600 : 400,
-        background: value === val ? C.panel : 'transparent',
-        color: value === val ? C.accentDark : C.textSub,
-        boxShadow: value === val ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-        transition: 'all 0.1s',
+const Field = ({ label, children, row }) => {
+  const C = useC();
+  return (
+    <div style={{ marginBottom: 10, ...(row ? { display: 'flex', alignItems: 'center', gap: 8 } : {}) }}>
+      <label style={{
+        display: 'block', fontSize: 10, color: C.textMuted, marginBottom: row ? 0 : 3,
+        fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px',
+        flexShrink: row ? 0 : undefined, minWidth: row ? 58 : undefined,
       }}>
         {label}
-      </button>
-    ))}
-  </div>
-);
+      </label>
+      {children}
+    </div>
+  );
+};
+
+// ── Section header ────────────────────────────────────────────────────────────
+const Section = ({ label, accent, badge, children }) => {
+  const C = useC();
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '6px 12px',
+        background: C.sectionBg,
+        borderRadius: '6px 6px 0 0',
+        borderTop: `2px solid ${accent || C.border}`,
+        marginBottom: 10,
+      }}>
+        <span style={{
+          fontSize: 10, fontWeight: 700, color: accent || C.textSub,
+          textTransform: 'uppercase', letterSpacing: '0.7px', flex: 1,
+        }}>{label}</span>
+        {badge && (
+          <span style={{
+            fontSize: 10, padding: '1px 6px',
+            background: `${accent}18`, color: accent,
+            borderRadius: 3, fontWeight: 700, border: `1px solid ${accent}30`,
+          }}>{badge}</span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+};
+
+// ── Segmented control ─────────────────────────────────────────────────────────
+const Seg = ({ value, options, onChange }) => {
+  const C = useC();
+  return (
+    <div style={{
+      display: 'flex', background: C.sectionBg,
+      borderRadius: 6, padding: 2, gap: 2,
+      border: `1px solid ${C.border}`,
+    }}>
+      {options.map(({ val, label }) => (
+        <button key={val} onClick={() => onChange(val)} style={{
+          flex: 1, padding: '5px 4px', border: 'none', borderRadius: 4, cursor: 'pointer',
+          fontSize: 11, fontWeight: value === val ? 600 : 400,
+          background: value === val ? C.panel : 'transparent',
+          color: value === val ? C.accentDark : C.textSub,
+          boxShadow: value === val ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+          transition: 'all 0.1s',
+        }}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+};
 
 // ── Door angle preview ────────────────────────────────────────────────────────
-const AngleSlider = ({ value, onChange }) => (
-  <div>
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <input
-        type="range" min={5} max={175} step={5} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{ flex: 1, accentColor: C.accent }}
-      />
-      <span style={{ fontSize: 12, fontWeight: 600, color: C.text, minWidth: 36 }}>
-        {value}°
-      </span>
+const AngleSlider = ({ value, onChange }) => {
+  const C = useC();
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input
+          type="range" min={5} max={175} step={5} value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          style={{ flex: 1, accentColor: C.accent }}
+        />
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.text, minWidth: 36 }}>
+          {value}°
+        </span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+        <svg width={80} height={52} viewBox="0 0 80 52">
+          <line x1={10} y1={10} x2={70} y2={10} stroke="#334155" strokeWidth={2.5} />
+          {(() => {
+            const r = 35, cx = 20, cy = 10;
+            const θ = (value * Math.PI) / 180;
+            const ex = cx + r * Math.cos(θ), ey = cy + r * Math.sin(θ);
+            const largeArc = value > 90 ? 1 : 0;
+            return (
+              <>
+                <path d={`M ${cx + r} ${cy} A ${r} ${r} 0 ${largeArc} 0 ${ex.toFixed(1)} ${ey.toFixed(1)}`}
+                  fill="none" stroke={`${C.accent}50`} strokeWidth={1.5} strokeDasharray="3,3" />
+                <line x1={cx} y1={cy} x2={ex.toFixed(1)} y2={ey.toFixed(1)}
+                  stroke={C.accentDark} strokeWidth={2} strokeLinecap="round" />
+                <circle cx={cx} cy={cy} r={3} fill={C.accentDark} />
+              </>
+            );
+          })()}
+        </svg>
+      </div>
     </div>
-    <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
-      <svg width={80} height={52} viewBox="0 0 80 52">
-        <line x1={10} y1={10} x2={70} y2={10} stroke="#334155" strokeWidth={2.5} />
-        {(() => {
-          const r = 35, cx = 20, cy = 10;
-          const θ = (value * Math.PI) / 180;
-          const ex = cx + r * Math.cos(θ), ey = cy + r * Math.sin(θ);
-          const largeArc = value > 90 ? 1 : 0;
-          return (
-            <>
-              <path d={`M ${cx + r} ${cy} A ${r} ${r} 0 ${largeArc} 0 ${ex.toFixed(1)} ${ey.toFixed(1)}`}
-                fill="none" stroke={`${C.accent}50`} strokeWidth={1.5} strokeDasharray="3,3" />
-              <line x1={cx} y1={cy} x2={ex.toFixed(1)} y2={ey.toFixed(1)}
-                stroke={C.accentDark} strokeWidth={2} strokeLinecap="round" />
-              <circle cx={cx} cy={cy} r={3} fill={C.accentDark} />
-            </>
-          );
-        })()}
-      </svg>
-    </div>
-  </div>
-);
+  );
+};
 
 // ── Lock toggle ───────────────────────────────────────────────────────────────
-const LockBtn = ({ locked, onToggle }) => (
-  <button onClick={onToggle} style={{
-    width: '100%', padding: '7px 12px', marginBottom: 12,
-    background: locked ? 'rgba(245,158,11,0.08)' : 'transparent',
-    color: locked ? C.warning : C.textSub,
-    border: `1px solid ${locked ? 'rgba(245,158,11,0.3)' : C.border}`,
-    borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-    transition: 'all 0.15s', letterSpacing: '0.2px',
-  }}>
-    <span style={{ fontSize: 12 }}>{locked ? '🔒' : '🔓'}</span>
-    {locked ? 'LOCKED — click to unlock' : 'Unlocked'}
-  </button>
-);
+const LockBtn = ({ locked, onToggle }) => {
+  const C = useC();
+  return (
+    <button onClick={onToggle} style={{
+      width: '100%', padding: '7px 12px', marginBottom: 12,
+      background: locked ? 'rgba(245,158,11,0.08)' : 'transparent',
+      color: locked ? C.warning : C.textSub,
+      border: `1px solid ${locked ? 'rgba(245,158,11,0.3)' : C.border}`,
+      borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      transition: 'all 0.15s', letterSpacing: '0.2px',
+    }}>
+      <span style={{ fontSize: 12 }}>{locked ? '🔒' : '🔓'}</span>
+      {locked ? 'LOCKED — click to unlock' : 'Unlocked'}
+    </button>
+  );
+};
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 const FloorPlanProperties = () => {
+  const C = useC();
+  const inp = {
+    width: '100%', padding: '6px 8px',
+    border: `1px solid ${C.inputBorder}`,
+    borderRadius: 5, fontSize: 12, color: C.inputText,
+    background: C.inputBg, boxSizing: 'border-box', outline: 'none',
+    transition: 'border-color 0.1s',
+  };
+  const colorInp = { ...inp, padding: '2px 3px', height: 32, cursor: 'pointer' };
+
   const {
     rooms, furniture, doors, walls, groups,
     selectedIds, lockedIds,

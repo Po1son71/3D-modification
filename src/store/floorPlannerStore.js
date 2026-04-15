@@ -335,6 +335,7 @@ const useFloorPlannerStore = create((set, get) => ({
   gridSize:           0.05, // metres — 0.05 | 0.1 | 0.25
   undoMsg:            null, // { text, ts } — used for toast notifications
   editorCamera:       null, // { scale, offsetX, offsetY } — persists 2D pan/zoom across view switches
+  isDark:             false,
 
   past:   [],
   future: [],
@@ -389,6 +390,7 @@ const useFloorPlannerStore = create((set, get) => ({
   setActiveTool:         (tool) => set({ activeTool: tool, activeFurnitureDef: null }),
   setActiveFurnitureDef: (def)  => set({ activeFurnitureDef: def, activeTool: 'furniture' }),
   setViewMode:           (mode) => set({ viewMode: mode }),
+  setIsDark:             (v) => set({ isDark: v }),
   toggleHeatmap:         ()     => set((state) => ({ showHeatmap: !state.showHeatmap })),
   cycleGridSize:         ()     => set((state) => {
     const steps = [0.05, 0.1, 0.25];
