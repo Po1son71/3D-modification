@@ -198,49 +198,46 @@ function ptInPolygon(px, py, poly) {
   return inside;
 }
 
-// ── Furniture-to-wall snap ────────────────────────────────────────────────────
-// Snaps any axis-aligned edge of the furniture bounding box to the nearest room
-// wall inner face.  Only works for unrotated furniture (rotation === 0) — rotated
-// items snap to grid only.
-const FURN_WALL_SNAP = 0.25; // metres threshold
+// ── Furniture snap: room wall faces + other furniture edges ───────────────────
+// Snaps any axis-aligned edge of the furniture bounding box to the nearest snap
+// target. Only works for unrotated furniture — rotated items snap to grid only.
+const FURN_SNAP = 0.3; // metres threshold
 
-function snapFurnitureToWalls(fx, fy, fw, fd, rot, rooms) {
+function snapFurnitureToEdges(fx, fy, fw, fd, rot, rooms, allFurniture, excludeId) {
   if (rot) return { x: snapVal(fx), y: snapVal(fy), guides: [] }; // rotated: grid only
 
   const edges = { left: fx, right: fx + fw, top: fy, bottom: fy + fd };
-  let bestX = null, bestXDist = FURN_WALL_SNAP;
-  let bestY = null, bestYDist = FURN_WALL_SNAP;
+  let bestX = null, bestXDist = FURN_SNAP;
+  let bestY = null, bestYDist = FURN_SNAP;
   const guides = [];
 
+  const xTargets = [], yTargets = [];
+
+  // Room wall inner + outer faces
   for (const room of rooms) {
     const wt = room.wallThickness || 0.15;
-    // Inner faces of room walls
-    const innerLeft   = room.x + wt;
-    const innerRight  = room.x + room.width - wt;
-    const innerTop    = room.y + wt;
-    const innerBottom = room.y + room.height - wt;
+    xTargets.push(room.x + wt, room.x + room.width - wt, room.x, room.x + room.width);
+    yTargets.push(room.y + wt, room.y + room.height - wt, room.y, room.y + room.height);
+  }
 
-    // Also outer faces (for placing against exterior)
-    const outerLeft   = room.x;
-    const outerRight  = room.x + room.width;
-    const outerTop    = room.y;
-    const outerBottom = room.y + room.height;
+  // Other furniture edges
+  for (const f of (allFurniture || [])) {
+    if (f.id === excludeId || f.rotation) continue;
+    xTargets.push(f.x, f.x + f.width);
+    yTargets.push(f.y, f.y + f.depth);
+  }
 
-    const xTargets = [innerLeft, innerRight, outerLeft, outerRight];
-    const yTargets = [innerTop, innerBottom, outerTop, outerBottom];
-
-    for (const t of xTargets) {
-      const dL = Math.abs(edges.left - t);
-      if (dL < bestXDist) { bestXDist = dL; bestX = { val: t, delta: t - edges.left }; }
-      const dR = Math.abs(edges.right - t);
-      if (dR < bestXDist) { bestXDist = dR; bestX = { val: t, delta: t - edges.right }; }
-    }
-    for (const t of yTargets) {
-      const dT = Math.abs(edges.top - t);
-      if (dT < bestYDist) { bestYDist = dT; bestY = { val: t, delta: t - edges.top }; }
-      const dB = Math.abs(edges.bottom - t);
-      if (dB < bestYDist) { bestYDist = dB; bestY = { val: t, delta: t - edges.bottom }; }
-    }
+  for (const t of xTargets) {
+    const dL = Math.abs(edges.left - t);
+    if (dL < bestXDist) { bestXDist = dL; bestX = { val: t, delta: t - edges.left }; }
+    const dR = Math.abs(edges.right - t);
+    if (dR < bestXDist) { bestXDist = dR; bestX = { val: t, delta: t - edges.right }; }
+  }
+  for (const t of yTargets) {
+    const dT = Math.abs(edges.top - t);
+    if (dT < bestYDist) { bestYDist = dT; bestY = { val: t, delta: t - edges.top }; }
+    const dB = Math.abs(edges.bottom - t);
+    if (dB < bestYDist) { bestYDist = dB; bestY = { val: t, delta: t - edges.bottom }; }
   }
 
   const nx = bestX ? fx + bestX.delta : snapVal(fx);
@@ -253,21 +250,40 @@ function snapFurnitureToWalls(fx, fy, fw, fd, rot, rooms) {
 // ── Overlap detection helpers ─────────────────────────────────────────────────
 // Returns true if two AABB rectangles overlap (touching edges are OK).
 function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
-  const GAP = 0.01; // 1 cm tolerance so flush walls don't block
+  const GAP = 0.005; // 5 mm tolerance so flush items don't block each other
   return ax + aw > bx + GAP && bx + bw > ax + GAP &&
          ay + ah > by + GAP && by + bh > ay + GAP;
 }
 
-// Returns true if placing furniture at (fx,fy,fw,fd) would overlap any other
-// furniture item or the exterior of any room (for unrotated items only).
+// Returns true if placing furniture at (fx,fy,fw,fd) would overlap any other furniture.
 function furnitureOverlapsAny(fx, fy, fw, fd, rot, allFurniture, excludeId) {
-  if (rot) return false; // skip overlap check for rotated items (complex)
+  if (rot) return false; // skip overlap check for rotated items (complex geometry)
   for (const f of allFurniture) {
     if (f.id === excludeId) continue;
     if (f.rotation) continue; // skip rotated obstacles
     if (rectsOverlap(fx, fy, fw, fd, f.x, f.y, f.width, f.depth)) return true;
   }
   return false;
+}
+
+// Returns true if two rooms' bounding boxes overlap.
+function roomsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+  return rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh);
+}
+
+// Best non-overlapping X position: try candX, then clamp to origX if needed.
+// Returns { x, y } that is the closest position to (candX, candY) without overlap.
+function resolveNoOverlap(candX, candY, fw, fd, rot, allFurniture, excludeId, origX, origY) {
+  if (!furnitureOverlapsAny(candX, candY, fw, fd, rot, allFurniture, excludeId))
+    return { x: candX, y: candY };
+  // Try sliding along X only (keep original Y)
+  if (!furnitureOverlapsAny(candX, origY, fw, fd, rot, allFurniture, excludeId))
+    return { x: candX, y: origY };
+  // Try sliding along Y only (keep original X)
+  if (!furnitureOverlapsAny(origX, candY, fw, fd, rot, allFurniture, excludeId))
+    return { x: origX, y: candY };
+  // All blocked — stay at origin
+  return { x: origX, y: origY };
 }
 
 // ── Wall endpoint snap ────────────────────────────────────────────────────────
@@ -623,9 +639,29 @@ const FloorPlanEditor = () => {
         for (const id of ids) {
           if (locked.includes(id)) continue;
           const room = rs.find((r) => r.id === id);
-          if (room) { updateRoom(id, { x: room.x + dx, y: room.y + dy }); continue; }
+          if (room) {
+            const nx = snapVal(room.x + dx), ny = snapVal(room.y + dy);
+            const otherRooms = rs.filter((r) => r.id !== id);
+            const overlaps = otherRooms.some((r) => roomsOverlap(nx, ny, room.width, room.height, r.x, r.y, r.width, r.height));
+            if (!overlaps) {
+              if (room.polygon) {
+                const fdx = nx - room.x, fdy = ny - room.y;
+                const newPoly = room.polygon.map((v) => ({ x: v.x + fdx, y: v.y + fdy }));
+                updateRoom(id, { x: nx, y: ny, polygon: newPoly });
+              } else {
+                updateRoom(id, { x: nx, y: ny });
+              }
+            }
+            continue;
+          }
           const furn2 = furn.find((f) => f.id === id);
-          if (furn2) { updateFurniture(id, { x: furn2.x + dx, y: furn2.y + dy }); continue; }
+          if (furn2) {
+            const rot = (furn2.rotation || 0) * Math.PI / 180;
+            const nx = snapVal(furn2.x + dx), ny = snapVal(furn2.y + dy);
+            const resolved = resolveNoOverlap(nx, ny, furn2.width, furn2.depth, rot, furn, id, furn2.x, furn2.y);
+            updateFurniture(id, { x: resolved.x, y: resolved.y });
+            continue;
+          }
           // Doors: slide along their wall axis
           const door = ds.find((d) => d.id === id);
           if (door) {
@@ -2678,18 +2714,30 @@ const FloorPlanEditor = () => {
               if (!f) continue;
               const rot = (f.rotation || 0) * Math.PI / 180;
               const candX = orig.x + dx, candY = orig.y + dy;
-              const snap = snapFurnitureToWalls(candX, candY, f.width, f.depth, rot, rooms);
+              const snap = snapFurnitureToEdges(candX, candY, f.width, f.depth, rot, rooms, furniture, id);
               newGuides.push(...snap.guides);
-              // Only allow move if it doesn't overlap other furniture
-              if (!furnitureOverlapsAny(snap.x, snap.y, f.width, f.depth, rot, furniture, id)) {
-                updateFurniture(id, { x: snap.x, y: snap.y });
-              }
+              // Resolve to nearest non-overlapping position (slides along valid axis)
+              const resolved = resolveNoOverlap(snap.x, snap.y, f.width, f.depth, rot, furniture, id, orig.x, orig.y);
+              updateFurniture(id, { x: resolved.x, y: resolved.y });
             } else if (orig.kind === 'room') {
-              const nx = snapVal(orig.x + dx), ny = snapVal(orig.y + dy);
-              const rdx = nx - orig.x, rdy = ny - orig.y;
+              const candRX = snapVal(orig.x + dx), candRY = snapVal(orig.y + dy);
+              const rdx = candRX - orig.x, rdy = candRY - orig.y;
               const roomObj = rooms.find((r) => r.id === id);
+              // Room-to-room overlap prevention
+              let nx = candRX, ny = candRY;
+              const otherRooms = rooms.filter((r) => r.id !== id);
+              const overlapsRoom = otherRooms.some((r) => roomsOverlap(nx, ny, roomObj.width, roomObj.height, r.x, r.y, r.width, r.height));
+              if (overlapsRoom) {
+                const ox = snapVal(orig.x), oy = snapVal(orig.y);
+                const tryX = otherRooms.some((r) => roomsOverlap(nx, oy, roomObj.width, roomObj.height, r.x, r.y, r.width, r.height));
+                const tryY = otherRooms.some((r) => roomsOverlap(ox, ny, roomObj.width, roomObj.height, r.x, r.y, r.width, r.height));
+                if (!tryX) { ny = oy; }
+                else if (!tryY) { nx = ox; }
+                else { nx = ox; ny = oy; }
+              }
               if (roomObj && roomObj.polygon) {
-                const newPoly = orig.polygon.map((v) => ({ x: v.x + rdx, y: v.y + rdy }));
+                const fdx = nx - orig.x, fdy = ny - orig.y;
+                const newPoly = orig.polygon.map((v) => ({ x: v.x + fdx, y: v.y + fdy }));
                 updateRoom(id, { x: nx, y: ny, polygon: newPoly });
               } else {
                 updateRoom(id, { x: nx, y: ny });
