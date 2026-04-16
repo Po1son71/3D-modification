@@ -4,6 +4,7 @@ import useFloorPlannerStore, {
   getWallEndpoints,
   getDoorInfo,
   getSharedWallDoors,
+  getWorldWallFace,
 } from '../../store/floorPlannerStore';
 
 const PPM  = 60;    // pixels per meter at scale = 1
@@ -1467,6 +1468,34 @@ const FloorPlanEditor = ({ isDark = false }) => {
         const sp2 = toScreen(re.x, re.y);
         const ownDoors    = roomDoors.filter((d) => d.wall === wall);
         const sharedDoors = getSharedWallDoors(room, wall, doors, rooms);
+
+        // If this room has no doors on this face and no shared doors, but an adjacent room
+        // owns this face with a door, skip drawing — the owning room renders the gap.
+        if (ownDoors.length === 0 && sharedDoors.length === 0) {
+          const ourFace = getWorldWallFace(room, wall);
+          const dxO = ourFace.e.x - ourFace.s.x, dyO = ourFace.e.y - ourFace.s.y;
+          const fLen = Math.hypot(dxO, dyO);
+          if (fLen > 0.001) {
+            const uX = dxO / fLen, uY = dyO / fLen;
+            const nX = -uY, nY = uX;
+            const hasDoorOnAdjacentFace = rooms.some((other) => {
+              if (other.id === room.id) return false;
+              return ['north', 'south', 'east', 'west'].some((ow) => {
+                const thFace = getWorldWallFace(other, ow);
+                const dx0 = thFace.s.x - ourFace.s.x, dy0 = thFace.s.y - ourFace.s.y;
+                if (Math.abs(dx0 * nX + dy0 * nY) > 0.3) return false;
+                const dxT = thFace.e.x - thFace.s.x, dyT = thFace.e.y - thFace.s.y;
+                const tLen = Math.hypot(dxT, dyT);
+                if (tLen < 0.001) return false;
+                const dot = (dxT * uX + dyT * uY) / tLen;
+                if (Math.abs(Math.abs(dot) - 1) > 0.1) return false;
+                return doors.some((d) => d.roomId === other.id && d.wall === ow);
+              });
+            });
+            if (hasDoorOnAdjacentFace) continue;
+          }
+        }
+
         const wallDoors   = [...ownDoors, ...sharedDoors].sort((a, b) => a.offset - b.offset);
         ctx.strokeStyle = wallColor;
         ctx.lineWidth   = wt;

@@ -189,37 +189,89 @@ export function getWallEndpoints(room, wall) {
   }
 }
 
+// Rotate a local point about a room's center into world space.
+function roomToWorld(r, lx, ly) {
+  const rotRad = (r.rotation || 0) * Math.PI / 180;
+  if (!rotRad) return { x: lx, y: ly };
+  const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+  const dx = lx - cx, dy = ly - cy;
+  return {
+    x: cx + dx * Math.cos(rotRad) - dy * Math.sin(rotRad),
+    y: cy + dx * Math.sin(rotRad) + dy * Math.cos(rotRad),
+  };
+}
+
+// World-space endpoints of a named wall (accounts for room rotation).
+export function getWorldWallFace(room, wall) {
+  const ep = getWallEndpoints(room, wall);
+  const s  = roomToWorld(room, ep.start.x, ep.start.y);
+  const e  = roomToWorld(room, ep.end.x,   ep.end.y);
+  return { s, e, len: ep.len };
+}
+
 export function getSharedWallDoors(room, wall, doors, rooms) {
   const TOL = 0.12;
-  const { x, y, width: rw, height: rh } = room;
-  const opposites = { east: 'west', west: 'east', north: 'south', south: 'north' };
-  const oppWall = opposites[wall];
 
-  let ourFace, ourAxisStart;
-  if (wall === 'east')  { ourFace = x + rw;  ourAxisStart = y; }
-  if (wall === 'west')  { ourFace = x;        ourAxisStart = y; }
-  if (wall === 'north') { ourFace = y;         ourAxisStart = x; }
-  if (wall === 'south') { ourFace = y + rh;    ourAxisStart = x; }
+  // Our wall in world space
+  const { s: ourS, e: ourE } = getWorldWallFace(room, wall);
+  const dxO = ourE.x - ourS.x, dyO = ourE.y - ourS.y;
+  const lenO = Math.hypot(dxO, dyO);
+  if (lenO < 0.001) return [];
+  const uX = dxO / lenO, uY = dyO / lenO; // unit along our wall
+  const nX = -uY, nY = uX;                // one of the two normals
 
-  const ourLen = (wall === 'north' || wall === 'south') ? rw : rh;
   const result = [];
 
   for (const other of rooms) {
     if (other.id === room.id) continue;
 
-    let otherFace, otherAxisStart;
-    if (oppWall === 'east')  { otherFace = other.x + other.width;  otherAxisStart = other.y; }
-    if (oppWall === 'west')  { otherFace = other.x;                 otherAxisStart = other.y; }
-    if (oppWall === 'north') { otherFace = other.y;                  otherAxisStart = other.x; }
-    if (oppWall === 'south') { otherFace = other.y + other.height;   otherAxisStart = other.x; }
+    for (const otherWall of ['north', 'south', 'east', 'west']) {
+      const ep2  = getWallEndpoints(other, otherWall);
+      const thS  = roomToWorld(other, ep2.start.x, ep2.start.y);
+      const thE  = roomToWorld(other, ep2.end.x,   ep2.end.y);
+      const dxT  = thE.x - thS.x, dyT = thE.y - thS.y;
+      const lenT = Math.hypot(dxT, dyT);
+      if (lenT < 0.001) continue;
 
-    if (Math.abs(ourFace - otherFace) > TOL) continue;
+      // ① Walls must be parallel (|cos θ| ≈ 1)
+      const dot = (dxT * uX + dyT * uY) / lenT;
+      if (Math.abs(Math.abs(dot) - 1) > 0.05) continue;
 
-    for (const d of doors) {
-      if (d.roomId !== other.id || d.wall !== oppWall) continue;
-      const mappedOffset = d.offset + (otherAxisStart - ourAxisStart);
-      if (mappedOffset + d.width > 0.001 && mappedOffset < ourLen - 0.001) {
-        result.push({ ...d, offset: mappedOffset });
+      // ② Walls must be co-planar (normal distance < TOL)
+      const vecX = thS.x - ourS.x, vecY = thS.y - ourS.y;
+      if (Math.abs(vecX * nX + vecY * nY) > TOL) continue;
+
+      // ③ Walls must overlap along the shared axis
+      const sProj = vecX * uX + vecY * uY;
+      const eProj = sProj + dxT * uX + dyT * uY;
+      const olStart = Math.max(0, Math.min(sProj, eProj));
+      const olEnd   = Math.min(lenO, Math.max(sProj, eProj));
+      if (olEnd <= olStart + 0.001) continue;
+
+      // ④ Map doors on the other wall into our wall's local offset space
+      for (const d of doors) {
+        if (d.roomId !== other.id || d.wall !== otherWall) continue;
+
+        // Door gap endpoints in local space of the other room
+        const t0 = d.offset / ep2.len;
+        const t1 = (d.offset + d.width) / ep2.len;
+        const gLS = { x: ep2.start.x + t0 * (ep2.end.x - ep2.start.x), y: ep2.start.y + t0 * (ep2.end.y - ep2.start.y) };
+        const gLE = { x: ep2.start.x + t1 * (ep2.end.x - ep2.start.x), y: ep2.start.y + t1 * (ep2.end.y - ep2.start.y) };
+
+        // Rotate to world space
+        const gWS = roomToWorld(other, gLS.x, gLS.y);
+        const gWE = roomToWorld(other, gLE.x, gLE.y);
+
+        // Project onto our wall axis
+        const p0 = (gWS.x - ourS.x) * uX + (gWS.y - ourS.y) * uY;
+        const p1 = (gWE.x - ourS.x) * uX + (gWE.y - ourS.y) * uY;
+
+        const mappedOffset = Math.min(p0, p1);
+        const mappedWidth  = Math.abs(p1 - p0);
+
+        if (mappedOffset + mappedWidth > 0.001 && mappedOffset < lenO - 0.001) {
+          result.push({ ...d, offset: mappedOffset, width: mappedWidth });
+        }
       }
     }
   }

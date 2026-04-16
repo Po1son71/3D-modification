@@ -34,7 +34,7 @@ function makeTileTexture(baseColor = '#F0EDE8', groutColor = '#CCCAC5', tileSize
   tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
-import useFloorPlannerStore, { getDoorInfo, getSharedWallDoors } from '../../store/floorPlannerStore';
+import useFloorPlannerStore, { getDoorInfo, getSharedWallDoors, getWorldWallFace } from '../../store/floorPlannerStore';
 
 const WALL_H     = 1.8;
 const DOOR_H     = 2.1;
@@ -194,6 +194,34 @@ const RoomMesh = React.memo(({ room, roomDoors, allRooms, allDoors }) => {
       const L = wd.L;
       const ownDoors    = (roomDoors || []).filter((d) => d.wall === wallName);
       const sharedDoors = getSharedWallDoors(room, wallName, allDoors || [], allRooms || []);
+
+      // If this room has no doors on this face and no shared doors, but an adjacent room
+      // owns this face with a door, skip rendering — the owning room renders the gap.
+      if (ownDoors.length === 0 && sharedDoors.length === 0) {
+        const ourFace = getWorldWallFace(room, wallName);
+        const dxO = ourFace.e.x - ourFace.s.x, dyO = ourFace.e.y - ourFace.s.y;
+        const fLen = Math.hypot(dxO, dyO);
+        if (fLen > 0.001) {
+          const uX = dxO / fLen, uY = dyO / fLen;
+          const nX = -uY, nY = uX;
+          const hasDoorOnAdjacentFace = (allRooms || []).some((other) => {
+            if (other.id === room.id) return false;
+            return ['north', 'south', 'east', 'west'].some((ow) => {
+              const thFace = getWorldWallFace(other, ow);
+              const dx0 = thFace.s.x - ourFace.s.x, dy0 = thFace.s.y - ourFace.s.y;
+              if (Math.abs(dx0 * nX + dy0 * nY) > 0.3) return false;
+              const dxT = thFace.e.x - thFace.s.x, dyT = thFace.e.y - thFace.s.y;
+              const tLen = Math.hypot(dxT, dyT);
+              if (tLen < 0.001) return false;
+              const dot = (dxT * uX + dyT * uY) / tLen;
+              if (Math.abs(Math.abs(dot) - 1) > 0.1) return false;
+              return (allDoors || []).some((d) => d.roomId === other.id && d.wall === ow);
+            });
+          });
+          if (hasDoorOnAdjacentFace) continue;
+        }
+      }
+
       const sorted = [...ownDoors, ...sharedDoors].sort((a, b) => a.offset - b.offset);
 
       const gaps = sorted.map((d) => ({

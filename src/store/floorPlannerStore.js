@@ -9,7 +9,7 @@ import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 import { store } from './index';
 
 // Re-export utilities and catalog unchanged
-export { FURNITURE_CATALOG, getWallEndpoints, getSharedWallDoors, getWallInward, getDoorInfo } from './floorPlannerSlice';
+export { FURNITURE_CATALOG, getWallEndpoints, getSharedWallDoors, getWallInward, getDoorInfo, getWorldWallFace } from './floorPlannerSlice';
 
 // Import all action creators / thunks from the slice
 import * as actions from './floorPlannerSlice';
