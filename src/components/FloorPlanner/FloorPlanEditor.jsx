@@ -129,7 +129,8 @@ function findNearestWall(wx, wy, rooms, maxDist = 1.2) {
 // ── Room-to-room edge snap ────────────────────────────────────────────────────
 // Returns the snapped {x, y} and alignment guides when dragging/drawing a room.
 // Snaps edges and corners to other rooms within ROOM_SNAP_DIST metres.
-const ROOM_SNAP_DIST = 0.2; // metres — how close an edge must be before it snaps
+const ROOM_SNAP_DIST = 0.4; // metres — corner/face snap radius when drawing a new room
+const EDGE_SNAP_DIST = 0.5; // metres — edge-to-edge snap radius when dragging a room
 
 // ── Rotation helpers (module-level, used by snap/placement functions) ─────────
 function rotateAboutRoomCenter(room, px, py) {
@@ -149,6 +150,119 @@ function getRoomWorldCorners(room) {
     rotateAboutRoomCenter(room, x + w, y + h),
     rotateAboutRoomCenter(room, x,     y + h),
   ];
+}
+
+// ── Room-edge-to-room-edge snap during drag ───────────────────────────────────
+// Compares the world-space wall faces of all dragged rooms (at their candidate
+// position) against the faces of every stationary room.  Returns adjusted deltas
+// and guide descriptors.  Works with any room rotation.
+function computeRoomEdgeSnap(draggingOrigins, allRooms, sdx, sdy, threshold = EDGE_SNAP_DIST) {
+  const draggedIds = new Set(Object.keys(draggingOrigins));
+  const staticRooms = allRooms.filter((r) => !draggedIds.has(r.id));
+  if (!staticRooms.length) return { sdx, sdy, guides: [] };
+
+  // Build candidate rooms (original data shifted by the current grid-snapped delta)
+  const candidateRooms = [];
+  for (const [id, orig] of Object.entries(draggingOrigins)) {
+    if (orig.kind !== 'room') continue;
+    const full = allRooms.find((r) => r.id === id);
+    if (!full) continue;
+    candidateRooms.push({ ...full, x: orig.x + sdx, y: orig.y + sdy });
+  }
+  if (!candidateRooms.length) return { sdx, sdy, guides: [] };
+
+  // Collect world-space face segments
+  const WALLS = ['north', 'south', 'east', 'west'];
+  const draggedFaces = candidateRooms.flatMap((r) => WALLS.map((w) => getWorldWallFace(r, w)));
+  const staticFaces  = staticRooms.flatMap((r) => WALLS.map((w) => getWorldWallFace(r, w)));
+
+  let bestDX = 0, bestAbsDX = threshold;
+  let bestDY = 0, bestAbsDY = threshold;
+  let guideX = null, guideY = null;
+
+  for (const df of draggedFaces) {
+    const dxD = df.e.x - df.s.x, dyD = df.e.y - df.s.y;
+    const lenD = Math.hypot(dxD, dyD);
+    if (lenD < 0.001) continue;
+    const uX = dxD / lenD, uY = dyD / lenD; // unit along face
+    const nX = -uY, nY = uX;                 // face normal
+
+    for (const sf of staticFaces) {
+      const dxS = sf.e.x - sf.s.x, dyS = sf.e.y - sf.s.y;
+      const lenS = Math.hypot(dxS, dyS);
+      if (lenS < 0.001) continue;
+
+      // Must be parallel (|cos θ| ≈ 1)
+      if (Math.abs(Math.abs((dxS * uX + dyS * uY) / lenS) - 1) > 0.1) continue;
+
+      // Normal-direction separation must be within threshold
+      const vecX = sf.s.x - df.s.x, vecY = sf.s.y - df.s.y;
+      const signedDist = vecX * nX + vecY * nY;
+      if (Math.abs(signedDist) > threshold) continue;
+
+      // Faces must overlap along the shared axis (sProj..eProj overlaps 0..lenD)
+      const sProj = vecX * uX + vecY * uY;
+      const eProj = sProj + dxS * uX + dyS * uY;
+      if (Math.max(sProj, eProj) < -0.001 || Math.min(sProj, eProj) > lenD + 0.001) continue;
+
+      // Decompose correction into world X and Y components
+      const corrX = signedDist * nX;
+      const corrY = signedDist * nY;
+
+      if (Math.abs(corrX) > 0.0005 && Math.abs(corrX) < bestAbsDX) {
+        bestAbsDX = Math.abs(corrX);
+        bestDX    = corrX;
+        guideX    = { axis: 'x', value: (sf.s.x + sf.e.x) / 2, kind: 'edge', faceS: sf.s, faceE: sf.e };
+      }
+      if (Math.abs(corrY) > 0.0005 && Math.abs(corrY) < bestAbsDY) {
+        bestAbsDY = Math.abs(corrY);
+        bestDY    = corrY;
+        guideY    = { axis: 'y', value: (sf.s.y + sf.e.y) / 2, kind: 'edge', faceS: sf.s, faceE: sf.e };
+      }
+    }
+  }
+
+  const guides = [];
+  if (guideX) guides.push(guideX);
+  if (guideY) guides.push(guideY);
+  return { sdx: sdx + bestDX, sdy: sdy + bestDY, guides };
+}
+
+
+
+// ── Wall axis-alignment guides (red lines like a design-tool smart guide) ─────
+// Returns { axis, value, kind:'align', refPt } entries for every endpoint of the
+// dragged wall that shares the same X or Y coordinate (within tol) with any other
+// wall endpoint or room corner.
+function computeWallAlignGuides(x1, y1, x2, y2, draggingId, allFWWalls, rooms, tol = 0.08) {
+  // Reference points: all other freestanding-wall endpoints + room world corners
+  const refPts = [];
+  for (const w of allFWWalls) {
+    if (w.id === draggingId) continue;
+    refPts.push({ x: w.x1, y: w.y1 });
+    refPts.push({ x: w.x2, y: w.y2 });
+  }
+  for (const r of rooms) {
+    for (const c of getRoomWorldCorners(r)) refPts.push(c);
+  }
+
+  const raw = [];
+  for (const [px, py] of [[x1, y1], [x2, y2]]) {
+    for (const rp of refPts) {
+      if (Math.abs(px - rp.x) < tol)
+        raw.push({ axis: 'x', value: rp.x, kind: 'align', refPt: rp, dragPt: { x: px, y: py } });
+      if (Math.abs(py - rp.y) < tol)
+        raw.push({ axis: 'y', value: rp.y, kind: 'align', refPt: rp, dragPt: { x: px, y: py } });
+    }
+  }
+
+  // Deduplicate by axis + rounded value
+  const seen = new Set();
+  return raw.filter((g) => {
+    const key = `${g.axis}:${g.value.toFixed(3)}`;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
 }
 
 // ── Polygon room helpers ──────────────────────────────────────────────────────
@@ -475,6 +589,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
   const boxSelectRef    = useRef(null);    // box-select drag: { startSX, startSY, curSX, curSY, additive }
   const hoverHandleRef  = useRef(null);    // handle corner/edge key the mouse is hovering ('nw', 'n', …)
   const hoverGroupRef   = useRef(false);   // true when mouse is over empty area inside a group rect
+
   const hoverWallEpRef  = useRef(false);   // true when hovering over a wall endpoint
   const hoverRotateRef  = useRef(false);   // true when hovering over rotation handle
   const alignGuidesRef  = useRef([]);      // alignment guides: [{ axis:'x'|'y', value, kind }]
@@ -786,19 +901,87 @@ const FloorPlanEditor = ({ isDark = false }) => {
     const guides = alignGuidesRef.current;
     if (guides && guides.length > 0) {
       ctx.save();
-      ctx.strokeStyle = '#00BCD4';
-      ctx.lineWidth   = 1;
-      ctx.setLineDash([4, 4]);
       for (const g of guides) {
+        const isEdge  = g.kind === 'edge';
+        const isAlign = g.kind === 'align';
+        ctx.strokeStyle = isAlign ? '#F44336' : isEdge ? '#43A047' : '#00BCD4';
+        ctx.lineWidth   = isAlign ? 1 : isEdge ? 1.5 : 1;
+        ctx.globalAlpha = isAlign ? 0.85 : 1;
+        ctx.setLineDash(isEdge ? [6, 3] : [4, 4]);
+        if (isAlign) ctx.setLineDash([]);
+
         if (g.axis === 'x') {
           const sx2 = toScreen(g.value, 0).x;
           ctx.beginPath(); ctx.moveTo(sx2, 0); ctx.lineTo(sx2, height); ctx.stroke();
+          // Align: small dots at the two aligned points
+          if (isAlign && g.refPt && g.dragPt) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#F44336';
+            for (const pt of [g.refPt, g.dragPt]) {
+              const sp = toScreen(pt.x, pt.y);
+              ctx.beginPath(); ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2); ctx.fill();
+            }
+          }
+          // Diamond marker at centre
+          if (isEdge) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#43A047';
+            ctx.beginPath();
+            ctx.moveTo(sx2, height / 2 - 7); ctx.lineTo(sx2 + 7, height / 2);
+            ctx.lineTo(sx2, height / 2 + 7); ctx.lineTo(sx2 - 7, height / 2);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#43A047';
+            ctx.font = `bold ${Math.max(9, 10 * scale)}px sans-serif`;
+            ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+            ctx.fillText('Edge', sx2 + 10, height / 2 - 2);
+          }
         } else {
           const sy2 = toScreen(0, g.value).y;
           ctx.beginPath(); ctx.moveTo(0, sy2); ctx.lineTo(width, sy2); ctx.stroke();
+          if (isAlign && g.refPt && g.dragPt) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#F44336';
+            for (const pt of [g.refPt, g.dragPt]) {
+              const sp = toScreen(pt.x, pt.y);
+              ctx.beginPath(); ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2); ctx.fill();
+            }
+          }
+          if (isEdge) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#43A047';
+            ctx.beginPath();
+            ctx.moveTo(width / 2 - 7, sy2); ctx.lineTo(width / 2, sy2 - 7);
+            ctx.lineTo(width / 2 + 7, sy2); ctx.lineTo(width / 2, sy2 + 7);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#43A047';
+            ctx.font = `bold ${Math.max(9, 10 * scale)}px sans-serif`;
+            ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+            ctx.fillText('Edge', width / 2 + 10, sy2 - 2);
+          }
+        }
+
+        // Draw a thick highlight along the snapping face segment
+        if (isEdge && g.faceS && g.faceE) {
+          const fp1 = toScreen(g.faceS.x, g.faceS.y);
+          const fp2 = toScreen(g.faceE.x, g.faceE.y);
+          ctx.setLineDash([]);
+          ctx.strokeStyle = '#43A047';
+          ctx.lineWidth   = 3;
+          ctx.beginPath(); ctx.moveTo(fp1.x, fp1.y); ctx.lineTo(fp2.x, fp2.y); ctx.stroke();
+          // Small tick marks at each end
+          ctx.lineWidth = 2;
+          const dx = fp2.x - fp1.x, dy = fp2.y - fp1.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 0.1) {
+            const px = -dy / len * 6, py = dx / len * 6;
+            for (const [ex, ey] of [[fp1.x, fp1.y], [fp2.x, fp2.y]]) {
+              ctx.beginPath(); ctx.moveTo(ex - px, ey - py); ctx.lineTo(ex + px, ey + py); ctx.stroke();
+            }
+          }
         }
       }
       ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
       ctx.restore();
     }
 
@@ -2562,7 +2745,18 @@ const FloorPlanEditor = ({ isDark = false }) => {
       forceRender((n) => n + 1);
 
     } else if (activeTool === 'room') {
-      const { x, y } = snapPt(wx, wy);
+      let { x, y } = snapPt(wx, wy);
+      // Snap start point to existing room corners and face lines
+      for (const r of rooms) {
+        for (const { x: cx, y: cy } of getRoomWorldCorners(r)) {
+          if (Math.abs(wx - cx) < ROOM_SNAP_DIST) x = cx;
+          if (Math.abs(wy - cy) < ROOM_SNAP_DIST) y = cy;
+        }
+        if (!(r.rotation || 0)) {
+          for (const fx of [r.x, r.x + (r.width || 0)])  if (Math.abs(wx - fx) < ROOM_SNAP_DIST) x = fx;
+          for (const fy of [r.y, r.y + (r.height || 0)]) if (Math.abs(wy - fy) < ROOM_SNAP_DIST) y = fy;
+        }
+      }
       drawRef.current = { startX: x, startY: y, curX: x, curY: y };
       forceRender((n) => n + 1);
 
@@ -2679,6 +2873,8 @@ const FloorPlanEditor = ({ isDark = false }) => {
         const snapped = d1 <= d2 ? s1 : s2;
         wallSnapRef.current = snapped.snapped ? snapped : null;
         updateWall(d.id, { x1: nx1, y1: ny1, x2: nx2, y2: ny2 });
+        // HUD: dimension + parallel comparison lines
+        alignGuidesRef.current = computeWallAlignGuides(nx1, ny1, nx2, ny2, d.id, walls, rooms);
       } else if (d.type === 'wall-join') {
         // Move all joined endpoints by the same snapped delta
         const snap = snapWallPoint(wx, wy, rooms, walls, d.joined[0].id);
@@ -2702,12 +2898,19 @@ const FloorPlanEditor = ({ isDark = false }) => {
         }
         if (d.endpoint === 1) updateWall(d.id, { x1: nx, y1: ny });
         else                   updateWall(d.id, { x2: nx, y2: ny });
+        { const ex1 = d.endpoint === 1 ? nx : d.origX1, ey1 = d.endpoint === 1 ? ny : d.origY1;
+          const ex2 = d.endpoint === 2 ? nx : d.origX2, ey2 = d.endpoint === 2 ? ny : d.origY2;
+          alignGuidesRef.current = computeWallAlignGuides(ex1, ey1, ex2, ey2, d.id, walls, rooms); }
       } else if (d.type === 'multi') {
-        // Snap the delta ONCE so all items move as a rigid group —
-        // per-item snapping / overlap resolution is intentionally skipped here
-        // because it causes each piece to fly to a different position.
-        const sdx = snapVal(d.startWX + dx) - d.startWX;
-        const sdy = snapVal(d.startWY + dy) - d.startWY;
+        // Snap the delta ONCE so all items move as a rigid group.
+        let sdx = snapVal(d.startWX + dx) - d.startWX;
+        let sdy = snapVal(d.startWY + dy) - d.startWY;
+
+        // Room edge-to-edge snap: pull dragged room faces onto stationary room faces.
+        const edgeSnap = computeRoomEdgeSnap(d.origins, rooms, sdx, sdy);
+        sdx = edgeSnap.sdx;
+        sdy = edgeSnap.sdy;
+        alignGuidesRef.current = edgeSnap.guides;
 
         for (const [id, orig] of Object.entries(d.origins)) {
           if (orig.kind === 'furniture') {
@@ -2724,7 +2927,6 @@ const FloorPlanEditor = ({ isDark = false }) => {
             updateWall(id, { x1: orig.x1 + sdx, y1: orig.y1 + sdy, x2: orig.x2 + sdx, y2: orig.y2 + sdy });
           }
         }
-        alignGuidesRef.current = [];
       } else if (d.type === 'room-vertex') {
         const newPoly = d.origPoly.map((v) => ({ ...v }));
         newPoly[d.vertexIdx] = { x: snapVal(wx), y: snapVal(wy) };
@@ -2775,17 +2977,39 @@ const FloorPlanEditor = ({ isDark = false }) => {
     }
 
     if (drawRef.current) {
-      // Snap cursor to room corners/edges while drawing a new room.
-      // Uses world-space corners so rotated rooms snap correctly.
+      // Snap cursor to room corners and face lines while drawing a new room.
+      // Uses world-space positions so rotated rooms snap correctly.
       const ds = drawRef.current;
       let { x, y } = snapPt(wx, wy);
       const newGuides = [];
       for (const r of rooms) {
+        // Corner snap (all rooms, incl. rotated)
         for (const { x: cx, y: cy } of getRoomWorldCorners(r)) {
           if (Math.abs(wx - cx) < ROOM_SNAP_DIST) { x = cx; newGuides.push({ axis: 'x', value: cx }); }
           if (Math.abs(wy - cy) < ROOM_SNAP_DIST) { y = cy; newGuides.push({ axis: 'y', value: cy }); }
           if (Math.abs(ds.startX - cx) < ROOM_SNAP_DIST) newGuides.push({ axis: 'x', value: cx });
           if (Math.abs(ds.startY - cy) < ROOM_SNAP_DIST) newGuides.push({ axis: 'y', value: cy });
+        }
+        // Face-line snap (axis-aligned rooms only — snaps cursor onto an edge line)
+        if (!(r.rotation || 0)) {
+          for (const fx of [r.x, r.x + (r.width || 0)]) {
+            const face = getWorldWallFace(r, fx === r.x ? 'west' : 'east');
+            if (Math.abs(wx - fx) < ROOM_SNAP_DIST) {
+              x = fx;
+              newGuides.push({ axis: 'x', value: fx, kind: 'edge', faceS: face.s, faceE: face.e });
+            }
+            if (Math.abs(ds.startX - fx) < ROOM_SNAP_DIST)
+              newGuides.push({ axis: 'x', value: fx, kind: 'edge', faceS: face.s, faceE: face.e });
+          }
+          for (const fy of [r.y, r.y + (r.height || 0)]) {
+            const face = getWorldWallFace(r, fy === r.y ? 'north' : 'south');
+            if (Math.abs(wy - fy) < ROOM_SNAP_DIST) {
+              y = fy;
+              newGuides.push({ axis: 'y', value: fy, kind: 'edge', faceS: face.s, faceE: face.e });
+            }
+            if (Math.abs(ds.startY - fy) < ROOM_SNAP_DIST)
+              newGuides.push({ axis: 'y', value: fy, kind: 'edge', faceS: face.s, faceE: face.e });
+          }
         }
       }
       alignGuidesRef.current = newGuides;
@@ -2807,6 +3031,15 @@ const FloorPlanEditor = ({ isDark = false }) => {
       }
       wallDrawRef.current = { ...wallDrawRef.current, x2: x, y2: y };
       wallSnapRef.current = snap.snapped ? snap : null;
+      // Show HUD while drawing a new wall
+      { const wd = wallDrawRef.current;
+        const wLen = Math.hypot(wd.x2 - wd.x1, wd.y2 - wd.y1);
+        if (wLen > 0.05) {
+          alignGuidesRef.current = computeWallAlignGuides(wd.x1, wd.y1, wd.x2, wd.y2, '__preview__', walls, rooms);
+        } else {
+          alignGuidesRef.current = [];
+        }
+      }
       forceRender((n) => n + 1);
     }
 
@@ -2884,6 +3117,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
     if (dragRef.current) {
       dragRef.current = null;
       wallSnapRef.current = null;
+
       alignGuidesRef.current = [];
       return;
     }
@@ -2935,6 +3169,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
         setActiveTool('select');
       }
       wallDrawRef.current = null;
+
       forceRender((n) => n + 1);
     }
 
