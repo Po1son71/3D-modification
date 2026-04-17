@@ -714,51 +714,53 @@ const FloorPlanEditor = ({ isDark = false }) => {
         const { walls: ws2 } = useFloorPlannerStore.getState();
         for (const id of ids) {
           if (locked.includes(id)) continue;
+
+          // Room
           const room = rs.find((r) => r.id === id);
           if (room) {
             const nx = snapVal(room.x + dx), ny = snapVal(room.y + dy);
-            const otherRooms = rs.filter((r) => r.id !== id);
-            const overlaps = otherRooms.some((r) => roomsOverlap(nx, ny, room.width, room.height, r.x, r.y, r.width, r.height));
-            if (!overlaps) {
-              if (room.polygon) {
-                const fdx = nx - room.x, fdy = ny - room.y;
-                const newPoly = room.polygon.map((v) => ({ x: v.x + fdx, y: v.y + fdy }));
-                updateRoom(id, { x: nx, y: ny, polygon: newPoly });
-              } else {
-                updateRoom(id, { x: nx, y: ny });
-              }
+            if (room.polygon) {
+              const fdx = nx - room.x, fdy = ny - room.y;
+              updateRoom(id, { x: nx, y: ny, polygon: room.polygon.map((v) => ({ x: v.x + fdx, y: v.y + fdy })) });
+            } else {
+              updateRoom(id, { x: nx, y: ny });
             }
             continue;
           }
+
+          // Furniture
           const furn2 = furn.find((f) => f.id === id);
           if (furn2) {
-            const rot = (furn2.rotation || 0) * Math.PI / 180;
-            const nx = snapVal(furn2.x + dx), ny = snapVal(furn2.y + dy);
-            const resolved = resolveNoOverlap(nx, ny, furn2.width, furn2.depth, rot, furn, id, furn2.x, furn2.y);
-            updateFurniture(id, { x: resolved.x, y: resolved.y });
+            updateFurniture(id, { x: snapVal(furn2.x + dx), y: snapVal(furn2.y + dy) });
             continue;
           }
-          // Doors: slide along their wall axis
+
+          // Freestanding wall
+          const wall2 = ws2 && ws2.find((w) => w.id === id);
+          if (wall2) {
+            updateWall(id, { x1: snapVal(wall2.x1 + dx), y1: snapVal(wall2.y1 + dy),
+                             x2: snapVal(wall2.x2 + dx), y2: snapVal(wall2.y2 + dy) });
+            continue;
+          }
+
+          // Door — slide along its wall axis
           const door = ds.find((d) => d.id === id);
           if (door) {
             if (door.roomId) {
-              // Room door — slide along wall direction
               const room2 = rs.find((r) => r.id === door.roomId);
               if (!room2) continue;
               const isHoriz = door.wall === 'north' || door.wall === 'south';
               const wallLen = isHoriz ? room2.width : room2.height;
               const delta   = isHoriz ? dx : dy;
-              const newOff  = Math.max(0, Math.min(wallLen - door.width, door.offset + delta));
+              const newOff  = Math.max(0, Math.min(wallLen - door.width, snapVal(door.offset + delta)));
               updateDoor(id, { offset: newOff });
             } else if (door.wallId) {
-              // FW wall door — project arrow delta onto wall direction
               const fw = ws2 && ws2.find((w) => w.id === door.wallId);
               if (!fw) continue;
               const fwLen = Math.hypot(fw.x2 - fw.x1, fw.y2 - fw.y1);
               if (fwLen < 0.01) continue;
               const dirX = (fw.x2 - fw.x1) / fwLen, dirY = (fw.y2 - fw.y1) / fwLen;
-              const proj  = dx * dirX + dy * dirY;
-              const newOff = Math.max(0, Math.min(fwLen - door.width, door.offset + proj));
+              const newOff = Math.max(0, Math.min(fwLen - door.width, snapVal(door.offset + dx * dirX + dy * dirY)));
               updateDoor(id, { offset: newOff });
             }
           }
@@ -767,7 +769,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [undo, redo, deleteSelected, clearSelection, rotateSelectedFurniture, setSelectedIds, copySelected, pasteClipboard, updateRoom, updateFurniture, updateDoor, groupSelected, ungroupSelected]);
+  }, [undo, redo, deleteSelected, clearSelection, rotateSelectedFurniture, setSelectedIds, copySelected, pasteClipboard, updateRoom, updateFurniture, updateWall, updateDoor, groupSelected, ungroupSelected]);
 
   // ── Draw canvas ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2911,6 +2913,25 @@ const FloorPlanEditor = ({ isDark = false }) => {
         sdx = edgeSnap.sdx;
         sdy = edgeSnap.sdy;
         alignGuidesRef.current = edgeSnap.guides;
+
+        // Overlap prevention: don't let dragged rooms land on top of stationary rooms.
+        const draggedRoomIds = new Set(
+          Object.entries(d.origins).filter(([, o]) => o.kind === 'room').map(([id]) => id)
+        );
+        const staticRooms = rooms.filter((r) => !draggedRoomIds.has(r.id) && !r.polygon);
+        const wouldOverlap = (testSDX, testSDY) =>
+          Object.entries(d.origins).some(([id, orig]) => {
+            if (orig.kind !== 'room' || orig.polygon) return false;
+            const full = rooms.find((r) => r.id === id);
+            if (!full || full.polygon) return false;
+            const nx = orig.x + testSDX, ny = orig.y + testSDY;
+            return staticRooms.some((sr) => roomsOverlap(nx, ny, full.width, full.height, sr.x, sr.y, sr.width, sr.height));
+          });
+        if (wouldOverlap(sdx, sdy)) {
+          if (!wouldOverlap(sdx, 0))      { sdy = 0; }
+          else if (!wouldOverlap(0, sdy)) { sdx = 0; }
+          else                            { sdx = 0; sdy = 0; }
+        }
 
         for (const [id, orig] of Object.entries(d.origins)) {
           if (orig.kind === 'furniture') {
