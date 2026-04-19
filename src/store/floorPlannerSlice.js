@@ -582,6 +582,15 @@ const floorPlannerSlice = createSlice({
             x:       item.data.x + off,
             y:       item.data.y + off,
           });
+        } else if (item.kind === 'wall') {
+          state.walls.push({
+            ...item.data,
+            id: item.newId,
+            x1: item.data.x1 + off,
+            y1: item.data.y1 + off,
+            x2: item.data.x2 + off,
+            y2: item.data.y2 + off,
+          });
         }
       }
       if (clipboardGroup) {
@@ -743,14 +752,16 @@ export const rotateSelectedFurniture = (deg = 90) => (dispatch, getState) => {
 };
 
 export const copySelected = () => (dispatch, getState) => {
-  const { selectedIds, rooms, furniture, groups } = getState().floorPlanner;
+  const { selectedIds, rooms, furniture, walls, groups } = getState().floorPlanner;
   if (!selectedIds.length) return;
   const items = [];
   for (const id of selectedIds) {
     const r = rooms.find((x) => x.id === id);
     const f = furniture.find((x) => x.id === id);
+    const w = walls && walls.find((x) => x.id === id);
     if (r) items.push({ kind: 'room', data: { ...r } });
     else if (f) items.push({ kind: 'furniture', data: { ...f } });
+    else if (w) items.push({ kind: 'wall', data: { ...w } });
   }
   if (!items.length) return;
   const sourceGroup = groups.find(

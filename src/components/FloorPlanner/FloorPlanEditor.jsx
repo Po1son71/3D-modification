@@ -684,7 +684,17 @@ const FloorPlanEditor = ({ isDark = false }) => {
       else if ((e.ctrlKey || e.metaKey) && e.key === 'v') { e.preventDefault(); pasteClipboard(); }
       else if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); copySelected(); pasteClipboard(); }
       else if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
-      else if (e.key === 'Escape') { clearSelection(); drawRef.current = null; forceRender((n) => n + 1); }
+      else if (e.key === 'Escape') {
+        clearSelection();
+        drawRef.current     = null;
+        dragRef.current     = null;
+        wallDrawRef.current = null;
+        panRef.current      = null;
+        alignGuidesRef.current = [];
+        wallSnapRef.current = null;
+        setActiveTool('select');
+        forceRender((n) => n + 1);
+      }
       else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey) rotateSelectedFurniture(90);
       else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -769,7 +779,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [undo, redo, deleteSelected, clearSelection, rotateSelectedFurniture, setSelectedIds, copySelected, pasteClipboard, updateRoom, updateFurniture, updateWall, updateDoor, groupSelected, ungroupSelected]);
+  }, [undo, redo, deleteSelected, clearSelection, rotateSelectedFurniture, setSelectedIds, copySelected, pasteClipboard, updateRoom, updateFurniture, updateWall, updateDoor, groupSelected, ungroupSelected, setActiveTool]);
 
   // ── Draw canvas ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -3190,6 +3200,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
         setActiveTool('select');
       }
       wallDrawRef.current = null;
+      alignGuidesRef.current = [];
 
       forceRender((n) => n + 1);
     }
