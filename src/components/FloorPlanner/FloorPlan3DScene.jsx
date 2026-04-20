@@ -204,17 +204,27 @@ const RoomMesh = React.memo(({ room, roomDoors, allRooms, allDoors }) => {
         if (fLen > 0.001) {
           const uX = dxO / fLen, uY = dyO / fLen;
           const nX = -uY, nY = uX;
+          const ourS = ourFace.s.x * uX + ourFace.s.y * uY;
+          const ourE = ourFace.e.x * uX + ourFace.e.y * uY;
+          const oMin = Math.min(ourS, ourE), oMax = Math.max(ourS, ourE);
           const hasDoorOnAdjacentFace = (allRooms || []).some((other) => {
             if (other.id === room.id) return false;
             return ['north', 'south', 'east', 'west'].some((ow) => {
               const thFace = getWorldWallFace(other, ow);
+              // Co-planar check — 2 cm tolerance only (not 30 cm)
               const dx0 = thFace.s.x - ourFace.s.x, dy0 = thFace.s.y - ourFace.s.y;
-              if (Math.abs(dx0 * nX + dy0 * nY) > 0.3) return false;
+              if (Math.abs(dx0 * nX + dy0 * nY) > 0.02) return false;
+              // Parallel check
               const dxT = thFace.e.x - thFace.s.x, dyT = thFace.e.y - thFace.s.y;
               const tLen = Math.hypot(dxT, dyT);
               if (tLen < 0.001) return false;
               const dot = (dxT * uX + dyT * uY) / tLen;
               if (Math.abs(Math.abs(dot) - 1) > 0.1) return false;
+              // Must overlap in the parallel direction by at least 5 cm
+              const thS = thFace.s.x * uX + thFace.s.y * uY;
+              const thE = thFace.e.x * uX + thFace.e.y * uY;
+              const tMin = Math.min(thS, thE), tMax = Math.max(thS, thE);
+              if (Math.min(oMax, tMax) - Math.max(oMin, tMin) < 0.05) return false;
               return (allDoors || []).some((d) => d.roomId === other.id && d.wall === ow);
             });
           });

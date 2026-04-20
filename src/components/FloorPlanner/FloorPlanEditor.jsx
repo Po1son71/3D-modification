@@ -593,6 +593,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
   const hoverWallEpRef  = useRef(false);   // true when hovering over a wall endpoint
   const hoverRotateRef  = useRef(false);   // true when hovering over rotation handle
   const alignGuidesRef  = useRef([]);      // alignment guides: [{ axis:'x'|'y', value, kind }]
+  const miniCanvasRef   = useRef(null);    // mini-map canvas
   const [renderTick, forceRender] = useState(0);
 
   scaleRef.current  = scale;
@@ -672,6 +673,94 @@ const FloorPlanEditor = ({ isDark = false }) => {
     canvas.addEventListener('wheel', handler, { passive: false });
     return () => canvas.removeEventListener('wheel', handler);
   }, []);
+
+  // ── Mini-map ──────────────────────────────────────────────────────────────────
+  const MINI_W = 210, MINI_H = 158;
+  useEffect(() => {
+    const mc = miniCanvasRef.current;
+    if (!mc) return;
+    const ctx = mc.getContext('2d');
+    ctx.clearRect(0, 0, MINI_W, MINI_H);
+
+    // Background
+    ctx.fillStyle = 'rgba(18,18,28,0.86)';
+    ctx.fillRect(0, 0, MINI_W, MINI_H);
+
+    // Gather all content bounds
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const expand = (x, y) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); };
+    rooms.forEach((r) => {
+      if (r.polygon) r.polygon.forEach((v) => expand(v.x, v.y));
+      else { expand(r.x, r.y); expand(r.x + r.width, r.y + r.height); }
+    });
+    walls.forEach((w) => { expand(w.x1, w.y1); expand(w.x2, w.y2); });
+    furniture.forEach((f) => { expand(f.x, f.y); expand(f.x + f.width, f.y + f.depth); });
+
+    const hasContent = isFinite(minX);
+    if (!hasContent) {
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('No content', MINI_W / 2, MINI_H / 2);
+      return;
+    }
+
+    const pad = 0.8;
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const cW = maxX - minX, cH = maxY - minY;
+    const ipad = 10;
+    const ms = Math.min((MINI_W - ipad * 2) / cW, (MINI_H - ipad * 2) / cH);
+    const ox = ipad + ((MINI_W - ipad * 2) - cW * ms) / 2;
+    const oy = ipad + ((MINI_H - ipad * 2) - cH * ms) / 2;
+    const mX = (wx) => (wx - minX) * ms + ox;
+    const mY = (wy) => (wy - minY) * ms + oy;
+
+    // Draw rooms
+    rooms.forEach((r) => {
+      ctx.fillStyle = r.floorColor || '#e8dfd0';
+      if (r.polygon && r.polygon.length >= 3) {
+        ctx.beginPath();
+        r.polygon.forEach((v, i) => { i === 0 ? ctx.moveTo(mX(v.x), mY(v.y)) : ctx.lineTo(mX(v.x), mY(v.y)); });
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = r.wallColor || '#555'; ctx.lineWidth = Math.max(0.8, (r.wallThickness || 0.15) * ms);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(mX(r.x), mY(r.y), r.width * ms, r.height * ms);
+        ctx.strokeStyle = r.wallColor || '#555'; ctx.lineWidth = Math.max(0.8, (r.wallThickness || 0.15) * ms);
+        ctx.strokeRect(mX(r.x), mY(r.y), r.width * ms, r.height * ms);
+      }
+    });
+
+    // Draw freestanding walls
+    walls.forEach((w) => {
+      ctx.strokeStyle = w.color || '#444'; ctx.lineWidth = Math.max(1, (w.thickness || 0.15) * ms);
+      ctx.beginPath(); ctx.moveTo(mX(w.x1), mY(w.y1)); ctx.lineTo(mX(w.x2), mY(w.y2)); ctx.stroke();
+    });
+
+    // Draw furniture as small dots
+    furniture.forEach((f) => {
+      ctx.fillStyle = f.color || '#b08060';
+      ctx.fillRect(mX(f.x), mY(f.y), Math.max(2, f.width * ms), Math.max(2, f.depth * ms));
+    });
+
+    // Viewport rectangle — shows which part of the world is currently on screen
+    const vpX = -offsetRef.current.x / (PPM * scaleRef.current);
+    const vpY = -offsetRef.current.y / (PPM * scaleRef.current);
+    const vpW = canvasSize.width  / (PPM * scaleRef.current);
+    const vpH = canvasSize.height / (PPM * scaleRef.current);
+    ctx.strokeStyle = 'rgba(96,180,255,0.95)'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+    ctx.strokeRect(mX(vpX), mY(vpY), vpW * ms, vpH * ms);
+    ctx.fillStyle = 'rgba(96,180,255,0.07)';
+    ctx.fillRect(mX(vpX), mY(vpY), vpW * ms, vpH * ms);
+
+    // Border
+    ctx.strokeStyle = 'rgba(96,180,255,0.3)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    ctx.strokeRect(0.5, 0.5, MINI_W - 1, MINI_H - 1);
+
+    // Label
+    ctx.fillStyle = 'rgba(140,180,255,0.7)'; ctx.font = '9px sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('OVERVIEW', 6, 5);
+  }, [rooms, walls, furniture, scale, offset, canvasSize, renderTick]);
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -1673,17 +1762,30 @@ const FloorPlanEditor = ({ isDark = false }) => {
           if (fLen > 0.001) {
             const uX = dxO / fLen, uY = dyO / fLen;
             const nX = -uY, nY = uX;
+            // Project our face onto the parallel axis for overlap testing
+            const ourS = ourFace.s.x * uX + ourFace.s.y * uY;
+            const ourE = ourFace.e.x * uX + ourFace.e.y * uY;
+            const oMin = Math.min(ourS, ourE), oMax = Math.max(ourS, ourE);
             const hasDoorOnAdjacentFace = rooms.some((other) => {
               if (other.id === room.id) return false;
               return ['north', 'south', 'east', 'west'].some((ow) => {
                 const thFace = getWorldWallFace(other, ow);
+                // Must be co-planar — rooms that merely share the same axis but have
+                // any gap between them must NOT trigger the skip (tolerance = 2 cm)
                 const dx0 = thFace.s.x - ourFace.s.x, dy0 = thFace.s.y - ourFace.s.y;
-                if (Math.abs(dx0 * nX + dy0 * nY) > 0.3) return false;
+                if (Math.abs(dx0 * nX + dy0 * nY) > 0.02) return false;
+                // Must be parallel
                 const dxT = thFace.e.x - thFace.s.x, dyT = thFace.e.y - thFace.s.y;
                 const tLen = Math.hypot(dxT, dyT);
                 if (tLen < 0.001) return false;
                 const dot = (dxT * uX + dyT * uY) / tLen;
                 if (Math.abs(Math.abs(dot) - 1) > 0.1) return false;
+                // Must actually overlap in the parallel direction (prevents false skips
+                // from unrelated rooms that share the same Y/X coordinate elsewhere)
+                const thS = thFace.s.x * uX + thFace.s.y * uY;
+                const thE = thFace.e.x * uX + thFace.e.y * uY;
+                const tMin = Math.min(thS, thE), tMax = Math.max(thS, thE);
+                if (Math.min(oMax, tMax) - Math.max(oMin, tMin) < 0.05) return false;
                 return doors.some((d) => d.roomId === other.id && d.wall === ow);
               });
             });
@@ -1715,6 +1817,28 @@ const FloorPlanEditor = ({ isDark = false }) => {
         }
       }
 
+      // Live dimension badge while resizing — centered inside the room
+      const isResizing = (dragRef.current?.type === 'resize' && dragRef.current?.id === room.id) ||
+                         dragRef.current?.type === 'multi-resize';
+      if (isResizing) {
+        const normDeg = ((rot * 180 / Math.PI) % 360 + 360) % 360;
+        const textRot = (normDeg > 90 && normDeg < 270) ? rot + Math.PI : rot;
+        const label   = `${room.width.toFixed(2)} × ${room.height.toFixed(2)} m`;
+        ctx.font      = `bold ${Math.max(11, 12 * sc)}px sans-serif`;
+        const tw      = ctx.measureText(label).width;
+        const pad     = 6 * sc;
+        const bw      = tw + pad * 2, bh = Math.max(18, 20 * sc);
+        ctx.save(); ctx.translate(rcx, rcy); ctx.rotate(textRot);
+        ctx.fillStyle    = 'rgba(21,101,192,0.88)';
+        ctx.beginPath();
+        ctx.roundRect(-bw / 2, -bh / 2, bw, bh, bh / 2);
+        ctx.fill();
+        ctx.fillStyle    = '#fff';
+        ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+      }
+
       // Label — hide while actively rotating; always render readable (never upside-down)
       const isRotating = dragRef.current?.type === 'rotate' || dragRef.current?.type === 'rotate-multi';
       if (!isRotating && sw > 50 && sh > 28) {
@@ -1729,24 +1853,37 @@ const FloorPlanEditor = ({ isDark = false }) => {
         ctx.restore();
       }
 
-      // Dimension labels when selected — also hidden while rotating, also kept readable
-      if (!isRotating && isSel && sw > 60) {
+      // Dimension labels on all 4 wall faces when selected (matches freestanding wall style)
+      if (!isRotating && isSel) {
         const normDeg = ((rot * 180 / Math.PI) % 360 + 360) % 360;
         const flip    = normDeg > 90 && normDeg < 270;
+        const hRot    = rot - Math.PI / 2;
+        const hNorm   = ((hRot * 180 / Math.PI) % 360 + 360) % 360;
+        const hFlip   = hNorm > 90 && hNorm < 270;
+        const gap     = wt / 2 + Math.max(8, 9 * sc);
         ctx.fillStyle = '#1565C0';
-        ctx.font = `${Math.max(9, 10 * sc)}px sans-serif`;
+        ctx.font      = `${Math.max(9, 10 * sc)}px sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        const wlp = toScreen(rwcx, room.y);
-        ctx.save(); ctx.translate(wlp.x, wlp.y); ctx.rotate(flip ? rot + Math.PI : rot);
-        ctx.fillText(`${room.width.toFixed(2)}m`, 0, -wt / 2 - 8 * sc);
-        ctx.restore();
-        const hlp = toScreen(room.x, rwcy);
-        const hRot = rot - Math.PI / 2;
-        const hNormDeg = ((hRot * 180 / Math.PI) % 360 + 360) % 360;
-        const hFlip = hNormDeg > 90 && hNormDeg < 270;
-        ctx.save(); ctx.translate(hlp.x, hlp.y); ctx.rotate(hFlip ? hRot + Math.PI : hRot);
-        ctx.fillText(`${room.height.toFixed(2)}m`, 0, -wt / 2 - 8 * sc);
-        ctx.restore();
+
+        // North wall — width above
+        { const p = rotWP(rwcx, room.y); const sp = toScreen(p.x, p.y);
+          ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(flip ? rot + Math.PI : rot);
+          ctx.fillText(`${room.width.toFixed(2)} m`, 0, -gap); ctx.restore(); }
+
+        // South wall — width below
+        { const p = rotWP(rwcx, room.y + room.height); const sp = toScreen(p.x, p.y);
+          ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(flip ? rot + Math.PI : rot);
+          ctx.fillText(`${room.width.toFixed(2)} m`, 0, gap); ctx.restore(); }
+
+        // West wall — height to the left
+        { const p = rotWP(room.x, rwcy); const sp = toScreen(p.x, p.y);
+          ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(hFlip ? hRot + Math.PI : hRot);
+          ctx.fillText(`${room.height.toFixed(2)} m`, 0, -gap); ctx.restore(); }
+
+        // East wall — height to the right
+        { const p = rotWP(room.x + room.width, rwcy); const sp = toScreen(p.x, p.y);
+          ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(hFlip ? hRot + Math.PI : hRot);
+          ctx.fillText(`${room.height.toFixed(2)} m`, 0, gap); ctx.restore(); }
       }
 
       if (isLocked) {
@@ -3261,6 +3398,20 @@ const FloorPlanEditor = ({ isDark = false }) => {
         onMouseUp={onMouseUp}
         onMouseLeave={() => { panRef.current = null; hoverRef.current = null; doorHoverRef.current = null; hoverHandleRef.current = null; hoverRotateRef.current = false; wallSnapRef.current = null; }}
         onContextMenu={(e) => e.preventDefault()}
+      />
+
+      {/* Mini-map */}
+      <canvas
+        ref={miniCanvasRef}
+        width={MINI_W}
+        height={MINI_H}
+        style={{
+          position: 'absolute', bottom: 50, right: 14,
+          borderRadius: 7,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.45)',
+          pointerEvents: 'none',
+          imageRendering: 'pixelated',
+        }}
       />
 
       {/* Scale badge */}
