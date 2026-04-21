@@ -71,6 +71,38 @@ function drawFurnitureSymbol(ctx, type, sw, sh, sc, symColor = 'rgba(0,0,0,0.25)
   } else if (type === 'refrigerator') {
     ctx.beginPath(); ctx.moveTo(sw * 0.05, sh * 0.45); ctx.lineTo(sw * 0.95, sh * 0.45); ctx.stroke();
     ctx.strokeRect(sw * 0.75, sh * 0.12, sw * 0.08, sh * 0.25);
+  } else if (type === 'pod') {
+    // Hatched border pattern to indicate a POD zone
+    const step = Math.max(8, Math.min(sw, sh) * 0.12);
+    ctx.save(); ctx.globalAlpha = 0.18;
+    for (let i = -sh; i < sw + sh; i += step) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + sh, sh); ctx.stroke();
+    }
+    ctx.restore();
+    // "POD" label centred
+    ctx.save();
+    ctx.font = `bold ${Math.max(8, Math.min(sw, sh) * 0.14)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = symColor;
+    ctx.fillText('POD', sw / 2, sh / 2);
+    ctx.restore();
+  } else if (type === 'battery-bank') {
+    // Draw grid of battery cells based on item's batteryRows/batteryCols stored on ctx._batteryMeta
+    const cols = ctx._batteryMeta?.cols || 4;
+    const rows = ctx._batteryMeta?.rows || 2;
+    const cw = sw / cols, ch = sh / rows;
+    const gap = Math.max(1, Math.min(cw, ch) * 0.06);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        ctx.strokeRect(c * cw + gap, r * ch + gap, cw - gap * 2, ch - gap * 2);
+      }
+    }
+    // small + sign in first cell to indicate polarity
+    const cx2 = cw / 2, cy2 = ch / 2, sz = Math.min(cw, ch) * 0.2;
+    ctx.beginPath();
+    ctx.moveTo(cx2 - sz, cy2); ctx.lineTo(cx2 + sz, cy2);
+    ctx.moveTo(cx2, cy2 - sz); ctx.lineTo(cx2, cy2 + sz);
+    ctx.stroke();
   }
 }
 
@@ -2116,7 +2148,11 @@ const FloorPlanEditor = ({ isDark = false }) => {
 
     ctx.fillStyle = item.color || '#C8A080';
     ctx.fillRect(0, 0, sw, sd);
+    if (item.type === 'battery-bank') {
+      ctx._batteryMeta = { cols: item.batteryCols || 4, rows: item.batteryRows || 2 };
+    }
     drawFurnitureSymbol(ctx, item.type, sw, sd, sc, CTHEME.furnSymbol);
+    ctx._batteryMeta = null;
 
     ctx.strokeStyle = isSel ? '#1565C0' : 'rgba(0,0,0,0.28)';
     ctx.lineWidth   = isSel ? 2 : 1;

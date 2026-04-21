@@ -581,6 +581,49 @@ const FloorPlanProperties = () => {
                   </div>
                 </Section>
 
+                {/* ── Battery Bank config ─────────────────────── */}
+                {item.type === 'battery-bank' && (
+                  <Section label="Battery Bank Config" accent="#0EA5E9">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      <Field label="Columns">
+                        <input type="number" step="1" min="1" max="32"
+                          value={item.batteryCols || 1}
+                          onChange={(e) => {
+                            const v = Math.max(1, parseInt(e.target.value) || 1);
+                            updateFurniture(selectedId, { batteryCols: v });
+                          }}
+                          style={inp} />
+                      </Field>
+                      <Field label="Rows">
+                        <input type="number" step="1" min="1" max="32"
+                          value={item.batteryRows || 1}
+                          onChange={(e) => {
+                            const v = Math.max(1, parseInt(e.target.value) || 1);
+                            updateFurniture(selectedId, { batteryRows: v });
+                          }}
+                          style={inp} />
+                      </Field>
+                      <Field label="Layers">
+                        <input type="number" step="1" min="1" max="32"
+                          value={item.batteryLayers || 1}
+                          onChange={(e) => {
+                            const v = Math.max(1, parseInt(e.target.value) || 1);
+                            updateFurniture(selectedId, { batteryLayers: v });
+                          }}
+                          style={inp} />
+                      </Field>
+                    </div>
+                    <div style={{
+                      fontSize: 10, color: C.textMuted, marginTop: 2,
+                      padding: '4px 6px', background: C.sectionBg,
+                      borderRadius: 4, border: `1px solid ${C.border}`,
+                    }}>
+                      {(item.batteryCols || 1) * (item.batteryRows || 1) * (item.batteryLayers || 1)} cells total
+                      &nbsp;·&nbsp; cell {((item.width || 1) / (item.batteryCols || 1)).toFixed(2)}×{((item.depth || 1) / (item.batteryRows || 1)).toFixed(2)}×{((item.height3d || 1) / (item.batteryLayers || 1)).toFixed(2)} m
+                    </div>
+                  </Section>
+                )}
+
                 {/* ── DCIM Mapping section ────────────────────── */}
                 <Section label="DCIM Mapping" accent="#0EA5E9" badge="DCIM">
                   <Field label="Asset ID">

@@ -18,6 +18,7 @@ const TYPE_PREFIX = {
   'dining-chair': 'DCH', 'bar-stool': 'BST',
   'bathtub': 'BTH', 'toilet': 'TLT', 'shower': 'SHW',
   'bathroom-sink': 'BSN', 'vanity': 'VNT',
+  'pod': 'POD', 'battery-bank': 'BAT',
 };
 
 const nextAssetId = (type, furnitureList) => {
@@ -176,6 +177,31 @@ export const FURNITURE_CATALOG = {
     { type: 'bathroom-sink', name: 'Sink',           width: 0.5,  depth: 0.4,  color: '#F0F0F0', height3d: 0.85 },
     { type: 'vanity',        name: 'Vanity',         width: 1.2,  depth: 0.5,  color: '#E0E0E0', height3d: 0.9 },
   ],
+  'Power Infrastructure': {
+    'POD': {
+      'General': [
+        { type: 'pod', name: 'Micro POD 6×4m',    width: 6,  depth: 4,  height3d: 3.0, color: '#1E3A6E', modelPath: null },
+        { type: 'pod', name: 'Standard POD 12×8m', width: 12, depth: 8,  height3d: 3.5, color: '#1E3A6E', modelPath: null },
+        { type: 'pod', name: 'Large POD 20×10m',   width: 20, depth: 10, height3d: 4.0, color: '#1E3A6E', modelPath: null },
+      ],
+    },
+    'Battery': {
+      'General': [
+        {
+          type: 'battery-bank', name: 'Battery Bank 4×2×3',
+          width: 2.4, depth: 0.9, height3d: 1.8, color: '#2D3A4A',
+          modelPath: null,
+          batteryRows: 2, batteryCols: 4, batteryLayers: 3,
+        },
+        {
+          type: 'battery-bank', name: 'Battery Bank 6×3×2',
+          width: 3.6, depth: 1.35, height3d: 1.2, color: '#2D3A4A',
+          modelPath: null,
+          batteryRows: 3, batteryCols: 6, batteryLayers: 2,
+        },
+      ],
+    },
+  },
 };
 
 // ── Door geometry helpers (shared with editor + 3D scene) ─────────────────────

@@ -104,6 +104,168 @@ const ModelMeshInner = React.memo(({ modelPath, width, height3d, depth, rotation
   );
 });
 
+// ── Single battery cell box ───────────────────────────────────────────────────
+const BatteryCellMesh = ({ unitW, unitH, unitD, color }) => {
+  const gapFrac = 0.06;
+  return (
+    <mesh>
+      <boxGeometry args={[unitW * (1 - gapFrac), unitH * (1 - gapFrac * 2), unitD * (1 - gapFrac)]} />
+      <meshStandardMaterial color={color} roughness={0.35} metalness={0.45} />
+    </mesh>
+  );
+};
+
+// ── Battery bank — NxMxL grid of cells inside a metal rack frame ──────────────
+const BatteryBankMesh = React.memo(({ item }) => {
+  const {
+    x, y, width, depth, height3d = 1.8, color = '#2D3A4A',
+    rotation = 0, modelPath,
+    batteryRows = 1, batteryCols = 1, batteryLayers = 1,
+  } = item;
+
+  const unitW = width  / batteryCols;
+  const unitD = depth  / batteryRows;
+  const unitH = height3d / batteryLayers;
+  const rotRad = -(rotation * Math.PI) / 180;
+
+  // Frame dimensions
+  const postW  = Math.min(0.06, width  * 0.04);
+  const postD  = Math.min(0.06, depth  * 0.04);
+  const railH  = Math.min(0.05, height3d * 0.04);
+  const frameCol = '#1a1f2e';
+  const hw = width / 2, hd = depth / 2;
+
+  const cells = [];
+  for (let layer = 0; layer < batteryLayers; layer++) {
+    for (let row = 0; row < batteryRows; row++) {
+      for (let col = 0; col < batteryCols; col++) {
+        const localX = col * unitW + unitW / 2 - hw;
+        const localY = layer * unitH + unitH / 2 + FLOOR_THICK;
+        const localZ = row  * unitD + unitD / 2 - hd;
+        cells.push(
+          <group key={`${layer}-${row}-${col}`} position={[localX, localY, localZ]}>
+            {modelPath ? (
+              <ModelErrorBoundary fallback={<BatteryCellMesh unitW={unitW} unitH={unitH} unitD={unitD} color={color} />}>
+                <Suspense fallback={<BatteryCellMesh unitW={unitW} unitH={unitH} unitD={unitD} color={color} />}>
+                  <ModelMeshInner modelPath={modelPath} width={unitW} height3d={unitH} depth={unitD} rotation={0} color={color} />
+                </Suspense>
+              </ModelErrorBoundary>
+            ) : (
+              <BatteryCellMesh unitW={unitW} unitH={unitH} unitD={unitD} color={color} />
+            )}
+          </group>
+        );
+      }
+    }
+  }
+
+  const FrameMat = () => <meshStandardMaterial color={frameCol} metalness={0.8} roughness={0.2} />;
+  const capY  = FLOOR_THICK + height3d + railH / 2;
+  const baseY = FLOOR_THICK - railH / 2;
+  const midY  = FLOOR_THICK + height3d / 2;
+
+  return (
+    <group position={[x + hw, 0, y + hd]} rotation={[0, rotRad, 0]}>
+      {/* battery cells */}
+      {cells}
+
+      {/* corner posts */}
+      {[[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz], i) => (
+        <mesh key={i} position={[sx*(hw-postW/2), midY, sz*(hd-postD/2)]}>
+          <boxGeometry args={[postW, height3d + railH * 2, postD]} />
+          <FrameMat />
+        </mesh>
+      ))}
+
+      {/* top rails */}
+      <mesh position={[0, capY, -(hd-postD/2)]}><boxGeometry args={[width, railH, postD]} /><FrameMat /></mesh>
+      <mesh position={[0, capY,   hd-postD/2 ]}><boxGeometry args={[width, railH, postD]} /><FrameMat /></mesh>
+      <mesh position={[-(hw-postW/2), capY, 0]}><boxGeometry args={[postW, railH, depth]} /><FrameMat /></mesh>
+      <mesh position={[  hw-postW/2,  capY, 0]}><boxGeometry args={[postW, railH, depth]} /><FrameMat /></mesh>
+
+      {/* bottom rails */}
+      <mesh position={[0, baseY, -(hd-postD/2)]}><boxGeometry args={[width, railH, postD]} /><FrameMat /></mesh>
+      <mesh position={[0, baseY,   hd-postD/2 ]}><boxGeometry args={[width, railH, postD]} /><FrameMat /></mesh>
+      <mesh position={[-(hw-postW/2), baseY, 0]}><boxGeometry args={[postW, railH, depth]} /><FrameMat /></mesh>
+      <mesh position={[  hw-postW/2,  baseY, 0]}><boxGeometry args={[postW, railH, depth]} /><FrameMat /></mesh>
+    </group>
+  );
+});
+
+// ── POD — translucent fill + white corner posts & rails ──────────────────────
+const PodMesh = React.memo(({ item }) => {
+  const { x, y, width, depth, height3d = 3, color = '#6ab0e8', rotation = 0 } = item;
+  const cx = x + width / 2, cz = y + depth / 2;
+  const cy = FLOOR_THICK + height3d / 2;
+  const rotRad = -(rotation * Math.PI) / 180;
+
+  const postW = Math.min(0.12, width  * 0.03);
+  const postD = Math.min(0.12, depth  * 0.03);
+  const railH = Math.min(0.08, height3d * 0.04);
+  const hw = width / 2, hd = depth / 2;
+  const capY  = FLOOR_THICK + height3d + railH / 2;
+  const baseY = FLOOR_THICK - railH / 2;
+  const midY  = FLOOR_THICK + height3d / 2;
+
+  const F = () => <meshStandardMaterial color="#ffffff" metalness={0.5} roughness={0.25} />;
+
+  return (
+    <group position={[cx, 0, cz]} rotation={[0, rotRad, 0]}>
+      {/* translucent fill */}
+      <mesh position={[0, cy, 0]}>
+        <boxGeometry args={[width, height3d, depth]} />
+        <meshStandardMaterial color={color} transparent opacity={0.55} depthWrite={false} />
+      </mesh>
+
+      {/* corner posts */}
+      {[[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz], i) => (
+        <mesh key={i} position={[sx*(hw-postW/2), midY, sz*(hd-postD/2)]}>
+          <boxGeometry args={[postW, height3d + railH * 2, postD]} />
+          <F />
+        </mesh>
+      ))}
+
+      {/* top rails */}
+      <mesh position={[0, capY, -(hd-postD/2)]}><boxGeometry args={[width, railH, postD]} /><F /></mesh>
+      <mesh position={[0, capY,   hd-postD/2 ]}><boxGeometry args={[width, railH, postD]} /><F /></mesh>
+      <mesh position={[-(hw-postW/2), capY, 0]}><boxGeometry args={[postW, railH, depth]} /><F /></mesh>
+      <mesh position={[  hw-postW/2,  capY, 0]}><boxGeometry args={[postW, railH, depth]} /><F /></mesh>
+
+      {/* bottom rails */}
+      <mesh position={[0, baseY, -(hd-postD/2)]}><boxGeometry args={[width, railH, postD]} /><F /></mesh>
+      <mesh position={[0, baseY,   hd-postD/2 ]}><boxGeometry args={[width, railH, postD]} /><F /></mesh>
+      <mesh position={[-(hw-postW/2), baseY, 0]}><boxGeometry args={[postW, railH, depth]} /><F /></mesh>
+      <mesh position={[  hw-postW/2,  baseY, 0]}><boxGeometry args={[postW, railH, depth]} /><F /></mesh>
+
+      {/* internal section dividers along X (one every ~3 m) */}
+      {Array.from({ length: Math.max(0, Math.ceil(width / 3) - 1) }, (_, i) => {
+        const sx = -hw + (i + 1) * (width / Math.ceil(width / 3));
+        return (
+          <React.Fragment key={`sx-${i}`}>
+            <mesh position={[sx, midY, -(hd-postD/2)]}><boxGeometry args={[postW, height3d + railH * 2, postD]} /><F /></mesh>
+            <mesh position={[sx, midY,   hd-postD/2 ]}><boxGeometry args={[postW, height3d + railH * 2, postD]} /><F /></mesh>
+            <mesh position={[sx, capY,  0]}><boxGeometry args={[postW, railH, depth]} /><F /></mesh>
+            <mesh position={[sx, baseY, 0]}><boxGeometry args={[postW, railH, depth]} /><F /></mesh>
+          </React.Fragment>
+        );
+      })}
+
+      {/* internal section dividers along Z (one every ~3 m) */}
+      {Array.from({ length: Math.max(0, Math.ceil(depth / 3) - 1) }, (_, i) => {
+        const sz = -hd + (i + 1) * (depth / Math.ceil(depth / 3));
+        return (
+          <React.Fragment key={`sz-${i}`}>
+            <mesh position={[-(hw-postW/2), midY, sz]}><boxGeometry args={[postW, height3d + railH * 2, postD]} /><F /></mesh>
+            <mesh position={[  hw-postW/2,  midY, sz]}><boxGeometry args={[postW, height3d + railH * 2, postD]} /><F /></mesh>
+            <mesh position={[0, capY,  sz]}><boxGeometry args={[width, railH, postD]} /><F /></mesh>
+            <mesh position={[0, baseY, sz]}><boxGeometry args={[width, railH, postD]} /><F /></mesh>
+          </React.Fragment>
+        );
+      })}
+    </group>
+  );
+});
+
 // ── Simple fallback box (used when no modelPath, or GLB fails to load) ────────
 const BoxMesh = ({ width, height3d, depth, color, rotation }) => (
   <mesh
@@ -117,6 +279,9 @@ const BoxMesh = ({ width, height3d, depth, color, rotation }) => (
 
 // ── Combined furniture mesh: GLB if modelPath present, else box ───────────────
 const FurnitureMesh = React.memo(({ item }) => {
+  if (item.type === 'battery-bank') return <BatteryBankMesh item={item} />;
+  if (item.type === 'pod') return <PodMesh item={item} />;
+
   const { x, y, width, depth, color = '#C8A080', height3d = 0.8, rotation = 0, modelPath } = item;
 
   const px = x + width / 2;
