@@ -14,9 +14,8 @@ const buildNode = (n) => ({
   position:   n.position ?? { x: 0, y: 0 },
   draggable:  true,
   ...(isRegion(n.type) ? {
-    zIndex:     -1,
-    dragHandle: '.region-drag-handle',
-    style:      n.style ?? { width: 350, height: 480 },
+    zIndex: -1,
+    style:  n.style ?? { width: 350, height: 480 },
   } : {
     zIndex: 1,
     ...(n.style ? { style: n.style } : {}),
@@ -144,9 +143,8 @@ export const exportConfig = () => (dispatch, getState) => {
     };
     // region-specific fields
     if (isRegion(n.type)) {
-      out.style      = n.style ?? { width: 350, height: 480 };
-      out.zIndex     = -1;
-      out.dragHandle = '.region-drag-handle';
+      out.style  = n.style ?? { width: 350, height: 480 };
+      out.zIndex = -1;
     } else {
       if (n.style) out.style = n.style;
     }

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -9,6 +9,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   useReactFlow,
+  useUpdateNodeInternals,
   Panel,
   ReactFlowProvider,
 } from '@xyflow/react';
@@ -22,6 +23,20 @@ import {
   PalettePreview,
   DEFAULT_NODE_DATA,
 } from './PowerMapNodeTypes';
+
+/* ── Keeps edge paths in sync with rotated nodes ───────────────────
+   Rendered inside <ReactFlow> so it has access to the RF context.
+   Fires after every nodes-array change (import, rotation update, etc.)
+   and calls updateNodeInternals for every node that carries a rotation.
+   ─────────────────────────────────────────────────────────────────── */
+const RotationEdgeSync = ({ nodes }) => {
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    const rotated = nodes.filter((n) => n.data?.rotation);
+    if (rotated.length) rotated.forEach((n) => updateNodeInternals(n.id));
+  }, [nodes, updateNodeInternals]);
+  return null;
+};
 
 /* ── Edge factory ───────────────────────────────────────────────── */
 const makeEdgeStyle = (state) => ({
@@ -148,7 +163,6 @@ const PowerMapEditorInner = ({ onNodeSelect, onEdgeSelect }) => {
       if (!type) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const isRegion = type === 'region';
-      const isLine   = type === 'line';
       setNodes([
         ...nodes,
         {
@@ -158,11 +172,7 @@ const PowerMapEditorInner = ({ onNodeSelect, onEdgeSelect }) => {
           draggable: true,
           ...(isRegion ? {
             zIndex: -1,
-            dragHandle: '.region-drag-handle',
             style: { width: 350, height: 480 },
-          } : isLine ? {
-            zIndex: 1,
-            style: { width: 200, height: 4 },
           } : { zIndex: 1 }),
           data: { ...DEFAULT_NODE_DATA[type] },
         },
@@ -201,10 +211,13 @@ const PowerMapEditorInner = ({ onNodeSelect, onEdgeSelect }) => {
         elementsSelectable={editMode}
         elevateNodesOnSelect
         connectionMode="loose"
+        isValidConnection={() => true}
         fitView
         defaultEdgeOptions={{ type: 'smoothstep' }}
         style={{ background: T.canvasBg }}
       >
+        <RotationEdgeSync nodes={nodes}/>
+
         <Background
           variant={BackgroundVariant.Dots}
           color={T.dotColor}
