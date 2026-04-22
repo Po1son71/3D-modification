@@ -183,11 +183,12 @@ const Footer = () => {
 /* ── Page ─────────────────────────────────────────────────────────── */
 const PowerMapPage = () => {
   const T = useTheme();
-  const { importConfig, exportConfig } = usePowerMapStore();
+  const { importConfig, mergeConfig, exportConfig } = usePowerMapStore();
   const fileInputRef = useRef(null);
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
+  const [pendingJson, setPendingJson] = useState(null); // { text, name }
 
   /* Sync selection state with store updates */
   const { nodes, edges } = usePowerMapStore();
@@ -208,17 +209,32 @@ const PowerMapPage = () => {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const json = JSON.parse(ev.target.result);
-        const config = json.Config ?? json;
-        importConfig(config);
-        setSelectedNode(null);
-        setSelectedEdge(null);
+        JSON.parse(ev.target.result); // validate
+        setPendingJson({ text: ev.target.result, name: file.name });
       } catch {
         alert('Invalid JSON file');
       }
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const doImport = (mode) => {
+    if (!pendingJson) return;
+    try {
+      const json = JSON.parse(pendingJson.text);
+      const config = json.Config ?? json;
+      if (mode === 'overwrite') {
+        importConfig(config);
+        setSelectedNode(null);
+        setSelectedEdge(null);
+      } else {
+        mergeConfig(config);
+      }
+    } catch {
+      alert('Invalid JSON file');
+    }
+    setPendingJson(null);
   };
 
   /* Export */
@@ -268,6 +284,79 @@ const PowerMapPage = () => {
       </div>
 
       <Footer />
+
+      {/* ── Import mode dialog ──────────────────────────────────────── */}
+      {pendingJson && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={() => setPendingJson(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#1e293b', borderRadius: 10,
+              boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
+              width: 380, padding: '24px 24px 20px',
+              border: '1px solid #334155',
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#f8fafc', marginBottom: 4 }}>
+              Import Power Map
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 18 }}>
+              <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{pendingJson.name}</span>
+              {' '}— how do you want to import?
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              <button
+                onClick={() => doImport('merge')}
+                style={{
+                  padding: '10px 14px', borderRadius: 7, textAlign: 'left',
+                  border: '1px solid #334155', background: '#0f172a',
+                  cursor: 'pointer', transition: 'all 0.1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#1e3a5f'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.background = '#0f172a'; }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>➕ Add to current</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                  Imported nodes are placed alongside existing ones. All IDs are re-generated to avoid conflicts.
+                </div>
+              </button>
+
+              <button
+                onClick={() => doImport('overwrite')}
+                style={{
+                  padding: '10px 14px', borderRadius: 7, textAlign: 'left',
+                  border: '1px solid #334155', background: '#0f172a',
+                  cursor: 'pointer', transition: 'all 0.1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.background = '#450a0a'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.background = '#0f172a'; }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#ef4444' }}>🗑 Overwrite</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                  Current map is discarded and replaced entirely with the imported file.
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setPendingJson(null)}
+              style={{
+                width: '100%', padding: '7px', borderRadius: 6,
+                border: '1px solid #334155', background: 'transparent',
+                color: '#64748b', fontSize: 12, cursor: 'pointer',
+              }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

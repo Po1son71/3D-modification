@@ -17,6 +17,7 @@ const makeActions = (dispatch) => ({
   updateNodeData:   (id, patch) => dispatch(actions.updateNodeData({ id, patch })),
   updateEdgeData:   (id, patch) => dispatch(actions.updateEdgeData({ id, patch })),
   importConfig:     (config)   => dispatch(actions.importConfig(config)),
+  mergeConfig:      (config)   => dispatch(actions.mergeConfig(config)),
   // exportConfig returns a value — thunk pattern: call dispatch and return result
   exportConfig: () => actions.exportConfig()(dispatch, () => store.getState()),
 });

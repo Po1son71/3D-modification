@@ -1,5 +1,6 @@
-import React from 'react';
-import { Handle, Position } from '@xyflow/react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Handle, Position, NodeResizer } from '@xyflow/react';
+import usePowerMapStore from '../../store/powerMapStore';
 import { useTheme } from './powerMapTheme';
 
 /* ══════════════════════════════════════════════════════════════════
@@ -180,6 +181,17 @@ const makeActiveHandleStyle = (T) => ({
   borderRadius: '50%',
 });
 
+// Wraps node content so data.rotation (degrees) rotates everything including handles
+const RotateWrap = ({ rotation, children }) => (
+  <div style={{
+    transform: rotation ? `rotate(${rotation}deg)` : undefined,
+    transformOrigin: 'center',
+    display: 'inline-block',
+  }}>
+    {children}
+  </div>
+);
+
 const Card = ({ active, selected, accent, width, T, children }) => (
   <div style={{
     width,
@@ -265,13 +277,15 @@ export const TransformerNode = ({ data, selected }) => {
   const iconColor = active ? '#22c55e' : '#f59e0b';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-      <Handle type="target" position={Position.Top}    id="t" style={hs}/>
-      <StatusDot active={active} T={T}/>
-      <IconArea active={active} T={T}><TransformerSVG c={iconColor}/></IconArea>
-      <NameBar label={data.label} active={active} T={T}/>
-      <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-    </Card>
+    <RotateWrap rotation={data.rotation}>
+      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
+        <Handle type="target" position={Position.Top}    id="t" style={hs}/>
+        <StatusDot active={active} T={T}/>
+        <IconArea active={active} T={T}><TransformerSVG c={iconColor}/></IconArea>
+        <NameBar label={data.label} active={active} T={T}/>
+        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+      </Card>
+    </RotateWrap>
   );
 };
 
@@ -282,13 +296,15 @@ export const GeneratorNode = ({ data, selected }) => {
   const iconColor = active ? '#22c55e' : '#f59e0b';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-      <Handle type="target" position={Position.Top}    id="t" style={hs}/>
-      <StatusDot active={active} T={T}/>
-      <IconArea active={active} T={T}><GeneratorSVG c={iconColor}/></IconArea>
-      <NameBar label={data.label} active={active} T={T}/>
-      <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-    </Card>
+    <RotateWrap rotation={data.rotation}>
+      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
+        <Handle type="target" position={Position.Top}    id="t" style={hs}/>
+        <StatusDot active={active} T={T}/>
+        <IconArea active={active} T={T}><GeneratorSVG c={iconColor}/></IconArea>
+        <NameBar label={data.label} active={active} T={T}/>
+        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+      </Card>
+    </RotateWrap>
   );
 };
 
@@ -299,13 +315,15 @@ export const SwitchNode = ({ data, selected }) => {
   const iconColor = active ? '#22c55e' : '#94a3b8';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <Card active={active} selected={selected} accent={accent} width={72} T={T}>
-      <Handle type="target" position={Position.Top}    id="t" style={hs}/>
-      <StatusDot active={active} T={T}/>
-      <IconArea active={active} T={T}><BreakerSVG c={iconColor} closed={active}/></IconArea>
-      <NameBar label={data.label} active={active} T={T}/>
-      <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-    </Card>
+    <RotateWrap rotation={data.rotation}>
+      <Card active={active} selected={selected} accent={accent} width={72} T={T}>
+        <Handle type="target" position={Position.Top}    id="t" style={hs}/>
+        <StatusDot active={active} T={T}/>
+        <IconArea active={active} T={T}><BreakerSVG c={iconColor} closed={active}/></IconArea>
+        <NameBar label={data.label} active={active} T={T}/>
+        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+      </Card>
+    </RotateWrap>
   );
 };
 
@@ -316,15 +334,17 @@ export const MainSwitchNode = ({ data, selected }) => {
   const iconColor = active ? '#22c55e' : '#94a3b8';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <Card active={active} selected={selected} accent={accent} width={142} T={T}>
-      <Handle type="target" position={Position.Top} id="main-mcb-T-B" style={{ ...hs, left: '28%' }}/>
-      <Handle type="target" position={Position.Top} id="main-mcb-T-A" style={{ ...hs, left: '72%' }}/>
-      <StatusDot active={active} T={T}/>
-      <IconArea active={active} T={T}><MainBreakerSVG c={iconColor} closed={active}/></IconArea>
-      <NameBar label={data.label} active={active} T={T}/>
-      <Handle type="source" position={Position.Bottom} id="main-mcb-S-A" style={{ ...hs, left: '28%' }}/>
-      <Handle type="source" position={Position.Bottom} id="main-mcb-S-B" style={{ ...hs, left: '72%' }}/>
-    </Card>
+    <RotateWrap rotation={data.rotation}>
+      <Card active={active} selected={selected} accent={accent} width={142} T={T}>
+        <Handle type="target" position={Position.Top} id="main-mcb-T-B" style={{ ...hs, left: '28%' }}/>
+        <Handle type="target" position={Position.Top} id="main-mcb-T-A" style={{ ...hs, left: '72%' }}/>
+        <StatusDot active={active} T={T}/>
+        <IconArea active={active} T={T}><MainBreakerSVG c={iconColor} closed={active}/></IconArea>
+        <NameBar label={data.label} active={active} T={T}/>
+        <Handle type="source" position={Position.Bottom} id="main-mcb-S-A" style={{ ...hs, left: '28%' }}/>
+        <Handle type="source" position={Position.Bottom} id="main-mcb-S-B" style={{ ...hs, left: '72%' }}/>
+      </Card>
+    </RotateWrap>
   );
 };
 
@@ -335,14 +355,16 @@ export const RectifierNode = ({ data, selected }) => {
   const iconColor = active ? '#22c55e' : '#0ea5e9';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-      <Handle type="target" position={Position.Top}  id="t" style={hs}/>
-      <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
-      <StatusDot active={active} T={T}/>
-      <IconArea active={active} T={T}><RectifierSVG c={iconColor}/></IconArea>
-      <NameBar label={data.label} active={active} T={T}/>
-      <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-    </Card>
+    <RotateWrap rotation={data.rotation}>
+      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
+        <Handle type="target" position={Position.Top}  id="t" style={hs}/>
+        <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
+        <StatusDot active={active} T={T}/>
+        <IconArea active={active} T={T}><RectifierSVG c={iconColor}/></IconArea>
+        <NameBar label={data.label} active={active} T={T}/>
+        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+      </Card>
+    </RotateWrap>
   );
 };
 
@@ -353,48 +375,204 @@ export const InverterNode = ({ data, selected }) => {
   const iconColor = active ? '#22c55e' : '#8b5cf6';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-      <Handle type="target" position={Position.Top}  id="t" style={hs}/>
-      <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
-      <StatusDot active={active} T={T}/>
-      <IconArea active={active} T={T}><InverterSVG c={iconColor}/></IconArea>
-      <NameBar label={data.label} active={active} T={T}/>
-      <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-    </Card>
+    <RotateWrap rotation={data.rotation}>
+      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
+        <Handle type="target" position={Position.Top}  id="t" style={hs}/>
+        <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
+        <StatusDot active={active} T={T}/>
+        <IconArea active={active} T={T}><InverterSVG c={iconColor}/></IconArea>
+        <NameBar label={data.label} active={active} T={T}/>
+        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+      </Card>
+    </RotateWrap>
   );
 };
 
-export const RegionNode = ({ data, selected }) => {
+export const RegionNode = ({ id, data, selected }) => {
   const T = useTheme();
+  const { updateNodeData } = usePowerMapStore();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(data.label);
+  const inputRef = useRef(null);
+
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+
+  const commit = () => {
+    const val = draft.trim() || 'Region';
+    updateNodeData(id, { label: val });
+    setDraft(val);
+    setEditing(false);
+  };
+
+  const borderColor = selected ? '#3b82f6' : T.regionBorder;
+
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      border: `1.5px dashed ${selected ? '#3b82f6' : T.regionBorder}`,
-      borderRadius: 12,
-      background: T.regionBg,
-      backdropFilter: 'blur(2px)',
-      pointerEvents: 'none',
-      position: 'relative',
-    }}>
+    <>
+      <NodeResizer
+        isVisible={selected}
+        minWidth={160}
+        minHeight={120}
+        lineStyle={{ stroke: '#3b82f6', strokeWidth: 1.5 }}
+        handleStyle={{ width: 10, height: 10, background: '#3b82f6', border: '2px solid #fff', borderRadius: 3 }}
+      />
       <div style={{
-        position: 'absolute',
-        top: 0,
-        left: 12,
-        transform: 'translateY(-50%)',
-        background: T.regionLabelBg,
-        padding: '2px 10px',
-        borderRadius: 4,
-        border: `1px solid ${T.regionBorder}`,
-        fontSize: 11,
-        fontWeight: 700,
-        color: T.textSecondary,
-        letterSpacing: '0.04em',
-        textTransform: 'uppercase',
+        width: '100%',
+        height: '100%',
+        border: `2.5px solid ${borderColor}`,
+        borderRadius: 12,
+        background: T.regionBg,
+        backdropFilter: 'blur(2px)',
+        position: 'relative',
+        pointerEvents: 'none',
+        boxShadow: selected
+          ? `0 0 0 1px #3b82f6, inset 0 0 0 1px #3b82f688`
+          : `inset 0 0 0 1px ${T.regionBorder}44`,
       }}>
-        {data.label}
+
+        {/* drag handle + editable label */}
+        <div
+          className="region-drag-handle"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 14,
+            transform: 'translateY(-50%)',
+            background: T.regionLabelBg,
+            padding: editing ? '1px 6px' : '3px 12px',
+            borderRadius: 5,
+            border: `2px solid ${borderColor}`,
+            fontSize: 12,
+            fontWeight: 700,
+            color: T.textSecondary,
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+            cursor: editing ? 'text' : 'grab',
+            pointerEvents: 'all',
+            userSelect: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            minWidth: 60,
+          }}
+        >
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commit();
+                if (e.key === 'Escape') { setDraft(data.label); setEditing(false); }
+                e.stopPropagation();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: T.textSecondary,
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                width: Math.max(60, draft.length * 9),
+                cursor: 'text',
+              }}
+            />
+          ) : (
+            <>
+              <span>{data.label}</span>
+              <span
+                title="Rename"
+                onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
+                style={{ fontSize: 9, opacity: 0.45, cursor: 'text', lineHeight: 1 }}
+              >✎</span>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
+  );
+};
+
+/* ── Line / Bus-bar node ─────────────────────────────────────────────────────
+   Resizable horizontal bus. Handles at both ends + evenly spaced along top &
+   bottom so any component can tap in at any point along the bar.
+   connectionMode="loose" (set on the canvas) means every handle can both
+   start and end a connection — wire anything to anything.
+   ════════════════════════════════════════════════════════════════════════════ */
+export const LineNode = ({ data, selected }) => {
+  const T = useTheme();
+  const wireColor = selected ? '#3b82f6' : '#94a3b8';
+  const glowColor = selected ? '#3b82f688' : '#94a3b833';
+
+  const hs = {
+    width: 10, height: 10,
+    background: wireColor,
+    border: `2px solid ${selected ? '#bfdbfe' : '#475569'}`,
+    borderRadius: '50%',
+    zIndex: 10,
+  };
+
+  // intermediate tap handles along top & bottom (25 %, 50 %, 75 %)
+  const tapOffsets = ['25%', '50%', '75%'];
+
+  return (
+    <>
+      <NodeResizer
+        isVisible={selected}
+        minWidth={60}
+        minHeight={4}
+        maxHeight={4}
+        lineStyle={{ stroke: wireColor, strokeWidth: 1 }}
+        handleStyle={{ width: 8, height: 8, background: wireColor, border: '2px solid #fff', borderRadius: 2 }}
+        // only allow horizontal resizing
+        onResize={(_, { width }) => width}
+      />
+
+      <div style={{
+        width: '100%', height: '100%',
+        display: 'flex', alignItems: 'center',
+        position: 'relative',
+      }}>
+        {/* the bar itself */}
+        <div style={{
+          width: '100%', height: 4, borderRadius: 2,
+          background: wireColor,
+          boxShadow: `0 0 6px ${glowColor}`,
+        }} />
+
+        {/* label */}
+        {data.label && (
+          <div style={{
+            position: 'absolute', top: -15, left: '50%',
+            transform: 'translateX(-50%)',
+            fontSize: 9, fontWeight: 700, color: wireColor,
+            whiteSpace: 'nowrap', letterSpacing: '0.05em',
+            textTransform: 'uppercase', pointerEvents: 'none',
+          }}>{data.label}</div>
+        )}
+      </div>
+
+      {/* end handles — left & right */}
+      <Handle type="source" position={Position.Left}   id="end-l" isConnectableStart isConnectableEnd style={{ ...hs, top: '50%', left: -5, transform: 'translateY(-50%)' }}/>
+      <Handle type="source" position={Position.Right}  id="end-r" isConnectableStart isConnectableEnd style={{ ...hs, top: '50%', right: -5, transform: 'translateY(-50%)' }}/>
+
+      {/* tap handles along top */}
+      {tapOffsets.map((left, i) => (
+        <Handle key={`t${i}`} type="source" position={Position.Top} id={`top-${i}`}
+          isConnectableStart isConnectableEnd
+          style={{ ...hs, left, top: -5, transform: 'translateX(-50%)' }}/>
+      ))}
+
+      {/* tap handles along bottom */}
+      {tapOffsets.map((left, i) => (
+        <Handle key={`b${i}`} type="source" position={Position.Bottom} id={`bot-${i}`}
+          isConnectableStart isConnectableEnd
+          style={{ ...hs, left, bottom: -5, transform: 'translateX(-50%)' }}/>
+      ))}
+    </>
   );
 };
 
@@ -410,6 +588,7 @@ export const NODE_TYPES = {
   rectifier:   RectifierNode,
   inverter:    InverterNode,
   region:      RegionNode,
+  line:        LineNode,
 };
 
 /* Mini SVG previews for palette (smaller, same icon) */
@@ -422,6 +601,7 @@ const PalettePreview = ({ type }) => {
     rectifier:   <RectifierSVG   c="#0ea5e9"/>,
     inverter:    <InverterSVG    c="#8b5cf6"/>,
     region:      <svg width="32" height="20" viewBox="0 0 32 20"><rect x="1" y="1" width="30" height="18" rx="4" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="3,2"/></svg>,
+    line:        <svg width="44" height="14" viewBox="0 0 44 14"><line x1="2" y1="7" x2="42" y2="7" stroke="#64748b" strokeWidth="3" strokeLinecap="round"/><circle cx="2" cy="7" r="3.5" fill="#64748b"/><circle cx="22" cy="7" r="3" fill="#64748b"/><circle cx="42" cy="7" r="3.5" fill="#64748b"/></svg>,
   };
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', transform: 'scale(0.55)', transformOrigin: 'center', height: 40 }}>
@@ -438,16 +618,18 @@ export const PALETTE_ITEMS = [
   { type: 'rectifier',   label: 'Rectifier',    accent: '#0ea5e9' },
   { type: 'inverter',    label: 'Inverter',     accent: '#8b5cf6' },
   { type: 'region',      label: 'Region',       accent: '#475569' },
+  { type: 'line',        label: 'Line / Wire',  accent: '#64748b' },
 ];
 
 export { PalettePreview };
 
 export const DEFAULT_NODE_DATA = {
-  transformer: { label: 'Transformer', status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [] },
-  generator:   { label: 'Generator',   status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [] },
-  sb:          { label: 'Switch',      status: false, mainF: '', sensors: [] },
-  sbMain:      { label: 'Main Switch', status: false, mainF: '', sensors: [] },
-  rectifier:   { label: 'Rectifier',   status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [] },
-  inverter:    { label: 'Inverter',    status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [] },
+  transformer: { label: 'Transformer', status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [], rotation: 0 },
+  generator:   { label: 'Generator',   status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [], rotation: 0 },
+  sb:          { label: 'Switch',      status: false, mainF: '', sensors: [], rotation: 0 },
+  sbMain:      { label: 'Main Switch', status: false, mainF: '', sensors: [], rotation: 0 },
+  rectifier:   { label: 'Rectifier',   status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [], rotation: 0 },
+  inverter:    { label: 'Inverter',    status: false, primaryStatus: false, mainF: '', indicatorF: '', sensors: [], rotation: 0 },
   region:      { label: 'Region',      sensors: [] },
+  line:        { label: '',            sensors: [] },
 };

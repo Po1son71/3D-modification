@@ -148,6 +148,7 @@ const PowerMapEditorInner = ({ onNodeSelect, onEdgeSelect }) => {
       if (!type) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const isRegion = type === 'region';
+      const isLine   = type === 'line';
       setNodes([
         ...nodes,
         {
@@ -155,7 +156,14 @@ const PowerMapEditorInner = ({ onNodeSelect, onEdgeSelect }) => {
           type,
           position,
           draggable: true,
-          ...(isRegion ? { style: { width: 350, height: 480 } } : {}),
+          ...(isRegion ? {
+            zIndex: -1,
+            dragHandle: '.region-drag-handle',
+            style: { width: 350, height: 480 },
+          } : isLine ? {
+            zIndex: 1,
+            style: { width: 200, height: 4 },
+          } : { zIndex: 1 }),
           data: { ...DEFAULT_NODE_DATA[type] },
         },
       ]);
@@ -191,6 +199,8 @@ const PowerMapEditorInner = ({ onNodeSelect, onEdgeSelect }) => {
         nodesDraggable={editMode}
         nodesConnectable={editMode}
         elementsSelectable={editMode}
+        elevateNodesOnSelect
+        connectionMode="loose"
         fitView
         defaultEdgeOptions={{ type: 'smoothstep' }}
         style={{ background: T.canvasBg }}

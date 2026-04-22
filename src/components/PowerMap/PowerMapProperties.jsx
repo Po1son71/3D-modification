@@ -165,6 +165,33 @@ const NodePropsForm = ({ node }) => {
         </Field>
       )}
 
+      {d.rotation !== undefined && (
+        <>
+          <Divider T={T}/>
+          <Field label="Rotation" T={T}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="number" step="15" min="0" max="345"
+                value={d.rotation || 0}
+                onChange={(e) => set('rotation', Number(e.target.value))}
+                style={{ ...IS, width: 64 }}
+              />
+              <span style={{ fontSize: 10, color: T.textDimmer }}>°</span>
+              <button
+                onClick={() => set('rotation', ((d.rotation || 0) + 90) % 360)}
+                style={{ ...btnStyle('#334155'), padding: '4px 10px', fontSize: 14 }}
+                title="Rotate 90°"
+              >↻</button>
+              <button
+                onClick={() => set('rotation', ((d.rotation || 0) - 90 + 360) % 360)}
+                style={{ ...btnStyle('#334155'), padding: '4px 10px', fontSize: 14 }}
+                title="Rotate -90°"
+              >↺</button>
+            </div>
+          </Field>
+        </>
+      )}
+
       {node.type !== 'region' && (
         <>
           <Divider T={T}/>
