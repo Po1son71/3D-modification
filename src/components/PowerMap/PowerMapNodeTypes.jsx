@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Handle, Position, NodeResizer, useUpdateNodeInternals } from '@xyflow/react';
+import { Handle, Position, NodeResizer, NodeResizeControl, useUpdateNodeInternals } from '@xyflow/react';
 import usePowerMapStore from '../../store/powerMapStore';
 import { useTheme } from './powerMapTheme';
 
@@ -192,16 +192,32 @@ const RotateWrap = ({ id, rotation, children }) => {
     <div style={{
       transform: rotation ? `rotate(${rotation}deg)` : undefined,
       transformOrigin: 'center',
-      display: 'inline-block',
+      width: '100%',
+      height: '100%',
     }}>
       {children}
     </div>
   );
 };
 
-const Card = ({ active, selected, accent, width, T, children }) => (
+// Width-only resize — shows grab handles on left and right edges only.
+const WidthResizer = ({ visible }) => {
+  if (!visible) return null;
+  const hs = { width: 8, height: 28, background: '#3b82f6', border: '2px solid #fff', borderRadius: 3, cursor: 'ew-resize' };
+  const ls = { stroke: '#3b82f6', strokeWidth: 1.5 };
+  return (
+    <>
+      <NodeResizeControl variant="line"   position="left"  minWidth={60} style={ls}/>
+      <NodeResizeControl variant="handle" position="left"  minWidth={60} style={hs}/>
+      <NodeResizeControl variant="line"   position="right" minWidth={60} style={ls}/>
+      <NodeResizeControl variant="handle" position="right" minWidth={60} style={hs}/>
+    </>
+  );
+};
+
+const Card = ({ active, selected, accent, T, children }) => (
   <div style={{
-    width,
+    width: '100%',
     background: T.cardBg,
     border: `1px solid ${selected ? '#3b82f6' : active ? '#16a34a' : T.border}`,
     borderTop: `3px solid ${active ? '#22c55e' : accent}`,
@@ -285,15 +301,18 @@ export const TransformerNode = ({ id, data, selected }) => {
   const iconColor = active ? '#22c55e' : '#f59e0b';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <RotateWrap id={id} rotation={data.rotation}>
-      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-        <Handle type="target" position={Position.Top}    id="t" style={hs}/>
-        <StatusDot active={active} T={T}/>
-        <IconArea active={active} T={T}><TransformerSVG c={iconColor}/></IconArea>
-        <NameBar label={data.label} active={active} T={T}/>
-        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-      </Card>
-    </RotateWrap>
+    <>
+      <WidthResizer visible={selected}/>
+      <RotateWrap id={id} rotation={data.rotation}>
+        <Card active={active} selected={selected} accent={accent} T={T}>
+          <Handle type="target" position={Position.Top}    id="t" style={hs}/>
+          <StatusDot active={active} T={T}/>
+          <IconArea active={active} T={T}><TransformerSVG c={iconColor}/></IconArea>
+          <NameBar label={data.label} active={active} T={T}/>
+          <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+        </Card>
+      </RotateWrap>
+    </>
   );
 };
 
@@ -304,15 +323,18 @@ export const GeneratorNode = ({ id, data, selected }) => {
   const iconColor = active ? '#22c55e' : '#f59e0b';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <RotateWrap id={id} rotation={data.rotation}>
-      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-        <Handle type="target" position={Position.Top}    id="t" style={hs}/>
-        <StatusDot active={active} T={T}/>
-        <IconArea active={active} T={T}><GeneratorSVG c={iconColor}/></IconArea>
-        <NameBar label={data.label} active={active} T={T}/>
-        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-      </Card>
-    </RotateWrap>
+    <>
+      <WidthResizer visible={selected}/>
+      <RotateWrap id={id} rotation={data.rotation}>
+        <Card active={active} selected={selected} accent={accent} T={T}>
+          <Handle type="target" position={Position.Top}    id="t" style={hs}/>
+          <StatusDot active={active} T={T}/>
+          <IconArea active={active} T={T}><GeneratorSVG c={iconColor}/></IconArea>
+          <NameBar label={data.label} active={active} T={T}/>
+          <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+        </Card>
+      </RotateWrap>
+    </>
   );
 };
 
@@ -323,15 +345,18 @@ export const SwitchNode = ({ id, data, selected }) => {
   const iconColor = active ? '#22c55e' : '#94a3b8';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <RotateWrap id={id} rotation={data.rotation}>
-      <Card active={active} selected={selected} accent={accent} width={72} T={T}>
-        <Handle type="target" position={Position.Top}    id="t" style={hs}/>
-        <StatusDot active={active} T={T}/>
-        <IconArea active={active} T={T}><BreakerSVG c={iconColor} closed={active}/></IconArea>
-        <NameBar label={data.label} active={active} T={T}/>
-        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-      </Card>
-    </RotateWrap>
+    <>
+      <NodeResizer isVisible={selected} minWidth={60} minHeight={60} lineStyle={{ stroke: '#3b82f6', strokeWidth: 1.5 }} handleStyle={{ width: 8, height: 8, background: '#3b82f6', border: '2px solid #fff', borderRadius: 2 }}/>
+      <RotateWrap id={id} rotation={data.rotation}>
+        <Card active={active} selected={selected} accent={accent} T={T}>
+          <Handle type="target" position={Position.Top}    id="t" style={hs}/>
+          <StatusDot active={active} T={T}/>
+          <IconArea active={active} T={T}><BreakerSVG c={iconColor} closed={active}/></IconArea>
+          <NameBar label={data.label} active={active} T={T}/>
+          <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+        </Card>
+      </RotateWrap>
+    </>
   );
 };
 
@@ -342,17 +367,20 @@ export const MainSwitchNode = ({ id, data, selected }) => {
   const iconColor = active ? '#22c55e' : '#94a3b8';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <RotateWrap id={id} rotation={data.rotation}>
-      <Card active={active} selected={selected} accent={accent} width={142} T={T}>
-        <Handle type="target" position={Position.Top} id="main-mcb-T-B" style={{ ...hs, left: '28%' }}/>
-        <Handle type="target" position={Position.Top} id="main-mcb-T-A" style={{ ...hs, left: '72%' }}/>
-        <StatusDot active={active} T={T}/>
-        <IconArea active={active} T={T}><MainBreakerSVG c={iconColor} closed={active}/></IconArea>
-        <NameBar label={data.label} active={active} T={T}/>
-        <Handle type="source" position={Position.Bottom} id="main-mcb-S-A" style={{ ...hs, left: '28%' }}/>
-        <Handle type="source" position={Position.Bottom} id="main-mcb-S-B" style={{ ...hs, left: '72%' }}/>
-      </Card>
-    </RotateWrap>
+    <>
+      <WidthResizer visible={selected}/>
+      <RotateWrap id={id} rotation={data.rotation}>
+        <Card active={active} selected={selected} accent={accent} T={T}>
+          <Handle type="target" position={Position.Top} id="main-mcb-T-B" style={{ ...hs, left: '28%' }}/>
+          <Handle type="target" position={Position.Top} id="main-mcb-T-A" style={{ ...hs, left: '72%' }}/>
+          <StatusDot active={active} T={T}/>
+          <IconArea active={active} T={T}><MainBreakerSVG c={iconColor} closed={active}/></IconArea>
+          <NameBar label={data.label} active={active} T={T}/>
+          <Handle type="source" position={Position.Bottom} id="main-mcb-S-A" style={{ ...hs, left: '28%' }}/>
+          <Handle type="source" position={Position.Bottom} id="main-mcb-S-B" style={{ ...hs, left: '72%' }}/>
+        </Card>
+      </RotateWrap>
+    </>
   );
 };
 
@@ -363,16 +391,19 @@ export const RectifierNode = ({ id, data, selected }) => {
   const iconColor = active ? '#22c55e' : '#0ea5e9';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <RotateWrap id={id} rotation={data.rotation}>
-      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-        <Handle type="target" position={Position.Top}  id="t" style={hs}/>
-        <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
-        <StatusDot active={active} T={T}/>
-        <IconArea active={active} T={T}><RectifierSVG c={iconColor}/></IconArea>
-        <NameBar label={data.label} active={active} T={T}/>
-        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-      </Card>
-    </RotateWrap>
+    <>
+      <WidthResizer visible={selected}/>
+      <RotateWrap id={id} rotation={data.rotation}>
+        <Card active={active} selected={selected} accent={accent} T={T}>
+          <Handle type="target" position={Position.Top}  id="t" style={hs}/>
+          <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
+          <StatusDot active={active} T={T}/>
+          <IconArea active={active} T={T}><RectifierSVG c={iconColor}/></IconArea>
+          <NameBar label={data.label} active={active} T={T}/>
+          <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+        </Card>
+      </RotateWrap>
+    </>
   );
 };
 
@@ -383,16 +414,19 @@ export const InverterNode = ({ id, data, selected }) => {
   const iconColor = active ? '#22c55e' : '#8b5cf6';
   const hs = active ? makeActiveHandleStyle(T) : makeHandleStyle(T);
   return (
-    <RotateWrap id={id} rotation={data.rotation}>
-      <Card active={active} selected={selected} accent={accent} width={108} T={T}>
-        <Handle type="target" position={Position.Top}  id="t" style={hs}/>
-        <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
-        <StatusDot active={active} T={T}/>
-        <IconArea active={active} T={T}><InverterSVG c={iconColor}/></IconArea>
-        <NameBar label={data.label} active={active} T={T}/>
-        <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
-      </Card>
-    </RotateWrap>
+    <>
+      <WidthResizer visible={selected}/>
+      <RotateWrap id={id} rotation={data.rotation}>
+        <Card active={active} selected={selected} accent={accent} T={T}>
+          <Handle type="target" position={Position.Top}  id="t" style={hs}/>
+          <Handle type="target" position={Position.Left} id="l" style={{ ...hs, top: '42%' }}/>
+          <StatusDot active={active} T={T}/>
+          <IconArea active={active} T={T}><InverterSVG c={iconColor}/></IconArea>
+          <NameBar label={data.label} active={active} T={T}/>
+          <Handle type="source" position={Position.Bottom} id="s" style={hs}/>
+        </Card>
+      </RotateWrap>
+    </>
   );
 };
 

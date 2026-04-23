@@ -41,7 +41,7 @@ export const FURNITURE_CATALOG = {
         { type: 'server-rack', name: 'PowerEdge 12U',   width: 0.6, depth: 1.0,  color: '#1E3A6E', height3d: 0.65, modelPath: '/models/server-rack.glb' },
       ],
       'HP / HPE': [
-        { type: 'server-rack', name: 'ProLiant 42U',    width: 0.6, depth: 1.0,  color: '#0096D6', height3d: 2.0,  modelPath: '/models/server-rack.glb' },
+        { type: 'server-rack', name: 'ProLiant 42U',    width: 0.6, depth: 1.0,  color: '#0096D6', height3d: 2.0,  modelPath: 'models/NewServerRack.glb' },
         { type: 'server-rack', name: 'ProLiant 22U',    width: 0.6, depth: 0.85, color: '#0096D6', height3d: 1.1,  modelPath: '/models/server-rack.glb' },
       ],
       'Cisco': [
@@ -52,13 +52,13 @@ export const FURNITURE_CATALOG = {
         { type: 'server-rack', name: 'ThinkSystem 42U', width: 0.6, depth: 1.0,  color: '#E31837', height3d: 2.0,  modelPath: '/models/server-rack.glb' },
         { type: 'server-rack', name: 'ThinkSystem 24U', width: 0.6, depth: 0.9,  color: '#E31837', height3d: 1.2,  modelPath: '/models/server-rack.glb' },
       ],
-      'ZTE': [
+      'ZTE': [ 
         { type: 'server-rack', name: 'R5300 G4',        width: 0.6, depth: 1.0,  color: '#004B98', height3d: 2.0,  modelPath: '/models/server-rack.glb' },
         { type: 'server-rack', name: 'R5500 G4',        width: 0.7, depth: 1.1,  color: '#004B98', height3d: 2.2,  modelPath: '/models/server-rack.glb' },
         { type: 'server-rack', name: 'R5200 G4',        width: 0.6, depth: 0.9,  color: '#004B98', height3d: 1.2,  modelPath: '/models/server-rack.glb' },
       ],
       'Generic': [
-        { type: 'server-rack', name: 'Open Rack 42U',   width: 0.6, depth: 1.0,  color: '#3d3d3d', height3d: 2.0,  modelPath: '/models/server-rack.glb' },
+        { type: 'server-rack', name: 'Open Rack 42U',   width: 0.6, depth: 1.0,  color: '#3d3d3d', height3d: 2.0,  modelPath: '/models/TestRack.glb' },
       ],
     },
     'Cooling': {
@@ -188,16 +188,10 @@ export const FURNITURE_CATALOG = {
     'Battery': {
       'General': [
         {
-          type: 'battery-bank', name: 'Battery Bank 4×2×3',
+          type: 'battery-bank', name: 'Battery Bank',
           width: 2.4, depth: 0.9, height3d: 1.8, color: '#2D3A4A',
           modelPath: null,
           batteryRows: 2, batteryCols: 4, batteryLayers: 3,
-        },
-        {
-          type: 'battery-bank', name: 'Battery Bank 6×3×2',
-          width: 3.6, depth: 1.35, height3d: 1.2, color: '#2D3A4A',
-          modelPath: null,
-          batteryRows: 3, batteryCols: 6, batteryLayers: 2,
         },
       ],
     },

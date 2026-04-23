@@ -209,6 +209,9 @@ const PowerMapEditorInner = ({ onNodeSelect, onEdgeSelect }) => {
         nodesDraggable={editMode}
         nodesConnectable={editMode}
         elementsSelectable={editMode}
+        selectionOnDrag={editMode}
+        selectionKeyCode="Control"
+        multiSelectionKeyCode="Control"
         elevateNodesOnSelect
         connectionMode="loose"
         isValidConnection={() => true}

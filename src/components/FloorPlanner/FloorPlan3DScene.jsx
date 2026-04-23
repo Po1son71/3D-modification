@@ -77,20 +77,14 @@ const ModelMeshInner = React.memo(({ modelPath, width, height3d, depth, rotation
     return { clone, offset };
   }, [scene, width, height3d, depth]);
 
-  // Apply color tint to all mesh materials whenever color changes
+  // Replace every mesh's material with a uniform MeshStandardMaterial so the
+  // whole model renders as one solid color regardless of the original materials.
   useMemo(() => {
     if (!color) return;
-    const threeColor = new THREE.Color(color);
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 });
     clone.traverse((child) => {
       if (!child.isMesh) return;
-      const wasArray = Array.isArray(child.material);
-      const mats = wasArray ? child.material : [child.material];
-      const tinted = mats.map((mat) => {
-        const m = mat.clone();
-        m.color = threeColor.clone();
-        return m;
-      });
-      child.material = wasArray ? tinted : tinted[0];
+      child.material = mat;
     });
   }, [clone, color]);
 
@@ -161,7 +155,7 @@ const BatteryBankMesh = React.memo(({ item }) => {
 
   const FrameMat = () => <meshStandardMaterial color={frameCol} metalness={0.8} roughness={0.2} />;
   const capY  = FLOOR_THICK + height3d + railH / 2;
-  const baseY = FLOOR_THICK - railH / 2;
+  const baseY = FLOOR_THICK + railH / 2;
   const midY  = FLOOR_THICK + height3d / 2;
 
   return (
@@ -204,7 +198,7 @@ const PodMesh = React.memo(({ item }) => {
   const railH = Math.min(0.08, height3d * 0.04);
   const hw = width / 2, hd = depth / 2;
   const capY  = FLOOR_THICK + height3d + railH / 2;
-  const baseY = FLOOR_THICK - railH / 2;
+  const baseY = FLOOR_THICK + railH / 2;
   const midY  = FLOOR_THICK + height3d / 2;
 
   const F = () => <meshStandardMaterial color="#ffffff" metalness={0.5} roughness={0.25} />;
