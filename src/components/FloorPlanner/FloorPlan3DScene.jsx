@@ -276,24 +276,20 @@ const FurnitureMesh = React.memo(({ item }) => {
   if (item.type === 'battery-bank') return <BatteryBankMesh item={item} />;
   if (item.type === 'pod') return <PodMesh item={item} />;
 
-  const { x, y, width, depth, color = '#C8A080', height3d = 0.8, rotation = 0, modelPath } = item;
+  const { x, y, width, depth, color = '#C8A080', height3d = 0.8, rotation = 0, modelPath, wallMounted, mountHeight = 0 } = item;
 
   const px = x + width / 2;
   const pz = y + depth / 2;
+  const baseY = FLOOR_THICK + (wallMounted ? mountHeight : 0);
 
   if (!modelPath) {
-    // Box origin is centered → lift by height3d/2 so its bottom sits on the floor
     return (
-      <group position={[px, height3d / 2 + FLOOR_THICK, pz]}>
+      <group position={[px, baseY + height3d / 2, pz]}>
         <BoxMesh width={width} height3d={height3d} depth={depth} color={color} rotation={rotation} />
       </group>
     );
   }
 
-  // When a GLB is present the parent group sits at floor level (FLOOR_THICK).
-  // ModelMeshInner bottom-aligns the model to local Y=0 so it lands correctly.
-  // The fallback box is expressed in the *same local space* (relative to the parent),
-  // so it only needs height3d/2 to lift its center off Y=0 — NOT the absolute px/pz.
   const boxFallback = (
     <group position={[0, height3d / 2, 0]}>
       <BoxMesh width={width} height3d={height3d} depth={depth} color={color} rotation={rotation} />
@@ -301,7 +297,7 @@ const FurnitureMesh = React.memo(({ item }) => {
   );
 
   return (
-    <group position={[px, FLOOR_THICK, pz]}>
+    <group position={[px, baseY, pz]}>
       <ModelErrorBoundary fallback={boxFallback}>
         <Suspense fallback={boxFallback}>
           <ModelMeshInner

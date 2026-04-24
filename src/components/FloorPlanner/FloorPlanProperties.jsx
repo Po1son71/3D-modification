@@ -188,6 +188,52 @@ const FloorPlanProperties = () => {
     clearSelection, renameGroup,
   } = useFloorPlannerStore();
 
+  const snapToNearestWall = (item) => {
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const room of rooms) {
+      const wt = room.wallThickness || 0.1;
+
+      const northFaceY = room.y + wt;
+      const dNorth = Math.abs(item.y - northFaceY);
+      if (dNorth < bestDist) { bestDist = dNorth; best = { x: item.x, y: northFaceY, rotation: 180 }; }
+
+      const southFaceY = room.y + room.height - wt;
+      const dSouth = Math.abs((item.y + item.depth) - southFaceY);
+      if (dSouth < bestDist) { bestDist = dSouth; best = { x: item.x, y: southFaceY - item.depth, rotation: 0 }; }
+
+      const westFaceX = room.x + wt;
+      const dWest = Math.abs(item.x - westFaceX);
+      if (dWest < bestDist) { bestDist = dWest; best = { x: westFaceX, y: item.y, rotation: 90 }; }
+
+      const eastFaceX = room.x + room.width - wt;
+      const dEast = Math.abs((item.x + item.width) - eastFaceX);
+      if (dEast < bestDist) { bestDist = dEast; best = { x: eastFaceX - item.width, y: item.y, rotation: 270 }; }
+    }
+
+    for (const w of (walls || [])) {
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      if (Math.hypot(dx, dy) < 0.1) continue;
+      const thick = (w.thickness || 0.15) / 2;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        const midY = (w.y1 + w.y2) / 2;
+        const d1 = Math.abs(item.y - (midY + thick));
+        if (d1 < bestDist) { bestDist = d1; best = { x: item.x, y: midY + thick, rotation: 180 }; }
+        const d2 = Math.abs((item.y + item.depth) - (midY - thick));
+        if (d2 < bestDist) { bestDist = d2; best = { x: item.x, y: midY - thick - item.depth, rotation: 0 }; }
+      } else {
+        const midX = (w.x1 + w.x2) / 2;
+        const d1 = Math.abs(item.x - (midX + thick));
+        if (d1 < bestDist) { bestDist = d1; best = { x: midX + thick, y: item.y, rotation: 90 }; }
+        const d2 = Math.abs((item.x + item.width) - (midX - thick));
+        if (d2 < bestDist) { bestDist = d2; best = { x: midX - thick - item.width, y: item.y, rotation: 270 }; }
+      }
+    }
+
+    return best;
+  };
+
   const selectedId  = selectedIds[0] ?? null;
   const multiSelect = selectedIds.length > 1;
 
@@ -579,6 +625,58 @@ const FloorPlanProperties = () => {
                         onChange={(e) => numChange(updateFurniture, 'y', e)} style={inp} />
                     </Field>
                   </div>
+                </Section>
+
+                {/* ── Wall Mount ─────────────────────────────── */}
+                <Section label="Wall Mount" accent="#6366F1">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      id="wallMountedCb"
+                      checked={!!item.wallMounted}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const snap = snapToNearestWall(item);
+                          updateFurniture(selectedId, {
+                            wallMounted: true,
+                            mountHeight: item.mountHeight ?? 1.2,
+                            ...(snap ? { x: snap.x, y: snap.y, rotation: snap.rotation } : {}),
+                          });
+                        } else {
+                          updateFurniture(selectedId, { wallMounted: false });
+                        }
+                      }}
+                      style={{ width: 14, height: 14, accentColor: '#6366F1', cursor: 'pointer', flexShrink: 0 }}
+                    />
+                    <label htmlFor="wallMountedCb" style={{
+                      fontSize: 12, color: C.text, cursor: 'pointer',
+                      userSelect: 'none', flex: 1,
+                    }}>
+                      Wall Mounted
+                    </label>
+                    {item.wallMounted && (
+                      <span style={{
+                        fontSize: 10, color: '#6366F1',
+                        background: 'rgba(99,102,241,0.12)',
+                        border: '1px solid rgba(99,102,241,0.3)',
+                        padding: '1px 6px', borderRadius: 3, fontWeight: 700,
+                      }}>ACTIVE</span>
+                    )}
+                  </div>
+                  {item.wallMounted ? (
+                    <Field label="Mount Ht m">
+                      <input
+                        type="number" step="0.1" min="0" max="10"
+                        value={(item.mountHeight ?? 1.2).toFixed(1)}
+                        onChange={(e) => numChange(updateFurniture, 'mountHeight', e)}
+                        style={inp}
+                      />
+                    </Field>
+                  ) : (
+                    <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.6 }}>
+                      Check to snap this item to the nearest wall and mount it above the floor.
+                    </div>
+                  )}
                 </Section>
 
                 {/* ── Battery Bank config ─────────────────────── */}
