@@ -615,7 +615,7 @@ const FloorPlanProperties = () => {
                       </div>
                     </Field>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                     <Field label="X m">
                       <input type="number" step="0.25" value={item.x.toFixed(2)}
                         onChange={(e) => numChange(updateFurniture, 'x', e)} style={inp} />
@@ -623,6 +623,12 @@ const FloorPlanProperties = () => {
                     <Field label="Y m">
                       <input type="number" step="0.25" value={item.y.toFixed(2)}
                         onChange={(e) => numChange(updateFurniture, 'y', e)} style={inp} />
+                    </Field>
+                    <Field label="Z m">
+                      <input type="number" step="0.1"
+                        value={(item.elevationZ ?? 0).toFixed(2)}
+                        onChange={(e) => numChange(updateFurniture, 'elevationZ', e)}
+                        style={{ ...inp, borderColor: (item.elevationZ ?? 0) !== 0 ? '#6366F1' : undefined }} />
                     </Field>
                   </div>
                 </Section>
@@ -719,6 +725,76 @@ const FloorPlanProperties = () => {
                       {(item.batteryCols || 1) * (item.batteryRows || 1) * (item.batteryLayers || 1)} cells total
                       &nbsp;·&nbsp; cell {((item.width || 1) / (item.batteryCols || 1)).toFixed(2)}×{((item.depth || 1) / (item.batteryRows || 1)).toFixed(2)}×{((item.height3d || 1) / (item.batteryLayers || 1)).toFixed(2)} m
                     </div>
+                  </Section>
+                )}
+
+                {/* ── Fuel Tank config ───────────────────────── */}
+                {(item.type === 'fuel-tank-rect' || item.type === 'fuel-tank-square' || item.type === 'fuel-tank-oval') && (
+                  <Section label="Tank Config" accent="#D97706">
+                    {/* Type + Capacity row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                      <Field label="Capacity L">
+                        <input
+                          type="number" step="100" min="50"
+                          value={item.tankCapacity ?? 1000}
+                          onChange={(e) => {
+                            const v = Math.max(50, parseInt(e.target.value) || 1000);
+                            updateFurniture(selectedId, { tankCapacity: v });
+                          }}
+                          style={inp}
+                        />
+                      </Field>
+                      <Field label="Type">
+                        <div style={{
+                          padding: '6px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700,
+                          color: '#D97706', background: 'rgba(217,119,6,0.08)',
+                          border: '1px solid rgba(217,119,6,0.25)', textAlign: 'center',
+                        }}>
+                          {item.type === 'fuel-tank-rect' ? 'Rectangle' : item.type === 'fuel-tank-square' ? 'Square' : 'Oval'}
+                        </div>
+                      </Field>
+                    </div>
+
+                    {/* Fuel level bar */}
+                    <div style={{ marginBottom: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Fuel Level</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: item.fuelColor || '#F59E0B' }}>
+                          {item.fuelLevel ?? 0}%
+                        </span>
+                      </div>
+                      {/* Visual fill bar */}
+                      <div style={{
+                        height: 8, borderRadius: 4, overflow: 'hidden',
+                        background: C.sectionBg, border: `1px solid ${C.border}`, marginBottom: 6,
+                      }}>
+                        <div style={{
+                          width: `${item.fuelLevel ?? 0}%`, height: '100%',
+                          background: item.fuelColor || '#F59E0B',
+                          borderRadius: 4, transition: 'width 0.15s',
+                        }} />
+                      </div>
+                      <input
+                        type="range" min={0} max={100} step={1}
+                        value={item.fuelLevel ?? 0}
+                        onChange={(e) => updateFurniture(selectedId, { fuelLevel: Number(e.target.value) })}
+                        style={{ width: '100%', accentColor: item.fuelColor || '#F59E0B' }}
+                      />
+                    </div>
+
+                    {/* Fuel color */}
+                    <Field label="Fuel Color">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input type="color"
+                          value={item.fuelColor || '#F59E0B'}
+                          onChange={(e) => updateFurniture(selectedId, { fuelColor: e.target.value })}
+                          style={colorInp}
+                        />
+                        <span style={{ fontSize: 11, color: C.textSub, fontFamily: 'monospace' }}>
+                          {item.fuelColor || '#F59E0B'}
+                        </span>
+                      </div>
+                    </Field>
                   </Section>
                 )}
 

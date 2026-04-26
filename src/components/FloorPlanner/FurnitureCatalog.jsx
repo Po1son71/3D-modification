@@ -11,6 +11,7 @@ const CATEGORY_META = {
   'Dining':      { icon: '🍽️', accent: '#10B981' },
   'Office':      { icon: '💼', accent: '#6366F1' },
   'Bathroom':    { icon: '🚿', accent: '#14B8A6' },
+  'Fuel Tank':   { icon: '🛢️', accent: '#D97706', tag: 'FUEL' },
 };
 
 const TYPE_GROUP_ICON = {

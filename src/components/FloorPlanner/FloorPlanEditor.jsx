@@ -103,6 +103,32 @@ function drawFurnitureSymbol(ctx, type, sw, sh, sc, symColor = 'rgba(0,0,0,0.25)
     ctx.moveTo(cx2 - sz, cy2); ctx.lineTo(cx2 + sz, cy2);
     ctx.moveTo(cx2, cy2 - sz); ctx.lineTo(cx2, cy2 + sz);
     ctx.stroke();
+  } else if (type === 'fuel-tank-rect' || type === 'fuel-tank-square') {
+    // Horizontal fill-level line at 60%
+    ctx.beginPath();
+    ctx.moveTo(sw * 0.08, sh * 0.4); ctx.lineTo(sw * 0.92, sh * 0.4);
+    ctx.stroke();
+    // Vertical center seam
+    ctx.beginPath();
+    ctx.moveTo(sw * 0.5, sh * 0.08); ctx.lineTo(sw * 0.5, sh * 0.92);
+    ctx.stroke();
+    // Corner bolt marks
+    const bm = Math.min(sw, sh) * 0.08;
+    [[0.12, 0.15],[0.88, 0.15],[0.12, 0.85],[0.88, 0.85]].forEach(([bx, by]) => {
+      ctx.beginPath(); ctx.arc(sw * bx, sh * by, bm * 0.4, 0, Math.PI * 2); ctx.stroke();
+    });
+  } else if (type === 'fuel-tank-oval') {
+    // Inner oval ring
+    ctx.beginPath();
+    ctx.ellipse(sw / 2, sh / 2, sw * 0.38, sh * 0.36, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Fill-level arc at ~60%
+    ctx.beginPath();
+    ctx.ellipse(sw / 2, sh * 0.42, sw * 0.38, sh * 0.05, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Top nozzle
+    const nw = sw * 0.06, nh = sh * 0.12;
+    ctx.strokeRect(sw / 2 - nw / 2, sh * 0.04, nw, nh);
   }
 }
 
@@ -2147,7 +2173,13 @@ const FloorPlanEditor = ({ isDark = false }) => {
     ctx.translate(-sw / 2, -sd / 2);
 
     ctx.fillStyle = item.color || '#C8A080';
-    ctx.fillRect(0, 0, sw, sd);
+    if (item.type === 'fuel-tank-oval') {
+      ctx.beginPath();
+      ctx.ellipse(sw / 2, sd / 2, sw / 2, sd / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(0, 0, sw, sd);
+    }
     if (item.type === 'battery-bank') {
       ctx._batteryMeta = { cols: item.batteryCols || 4, rows: item.batteryRows || 2 };
     }
@@ -2156,7 +2188,13 @@ const FloorPlanEditor = ({ isDark = false }) => {
 
     ctx.strokeStyle = isSel ? '#1565C0' : 'rgba(0,0,0,0.28)';
     ctx.lineWidth   = isSel ? 2 : 1;
-    ctx.strokeRect(0, 0, sw, sd);
+    if (item.type === 'fuel-tank-oval') {
+      ctx.beginPath();
+      ctx.ellipse(sw / 2, sd / 2, sw / 2, sd / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(0, 0, sw, sd);
+    }
 
     if (isLocked) drawLockBadge(ctx, sw - 6 * sc, 6 * sc, sc);
 

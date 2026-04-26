@@ -115,6 +115,7 @@ const BatteryBankMesh = React.memo(({ item }) => {
     x, y, width, depth, height3d = 1.8, color = '#2D3A4A',
     rotation = 0, modelPath,
     batteryRows = 1, batteryCols = 1, batteryLayers = 1,
+    elevationZ = 0,
   } = item;
 
   const unitW = width  / batteryCols;
@@ -159,7 +160,7 @@ const BatteryBankMesh = React.memo(({ item }) => {
   const midY  = FLOOR_THICK + height3d / 2;
 
   return (
-    <group position={[x + hw, 0, y + hd]} rotation={[0, rotRad, 0]}>
+    <group position={[x + hw, elevationZ, y + hd]} rotation={[0, rotRad, 0]}>
       {/* battery cells */}
       {cells}
 
@@ -188,7 +189,7 @@ const BatteryBankMesh = React.memo(({ item }) => {
 
 // ── POD — translucent fill + white corner posts & rails ──────────────────────
 const PodMesh = React.memo(({ item }) => {
-  const { x, y, width, depth, height3d = 3, color = '#6ab0e8', rotation = 0 } = item;
+  const { x, y, width, depth, height3d = 3, color = '#6ab0e8', rotation = 0, elevationZ = 0 } = item;
   const cx = x + width / 2, cz = y + depth / 2;
   const cy = FLOOR_THICK + height3d / 2;
   const rotRad = -(rotation * Math.PI) / 180;
@@ -204,7 +205,7 @@ const PodMesh = React.memo(({ item }) => {
   const F = () => <meshStandardMaterial color="#ffffff" metalness={0.5} roughness={0.25} />;
 
   return (
-    <group position={[cx, 0, cz]} rotation={[0, rotRad, 0]}>
+    <group position={[cx, elevationZ, cz]} rotation={[0, rotRad, 0]}>
       {/* translucent fill */}
       <mesh position={[0, cy, 0]}>
         <boxGeometry args={[width, height3d, depth]} />
@@ -264,23 +265,155 @@ const PodMesh = React.memo(({ item }) => {
 const BoxMesh = ({ width, height3d, depth, color, rotation }) => (
   <mesh
     rotation={[0, -(rotation * Math.PI) / 180, 0]}
-   
+
   >
     <boxGeometry args={[width, height3d, depth]} />
     <meshStandardMaterial color={color} roughness={0.6} />
   </mesh>
 );
 
+// ── Rect / Square fuel tank — semi-transparent box with rising fuel fill ────────
+const BoxTankMesh = React.memo(({ item }) => {
+  const { x, y, width, depth, color = '#4A5568', height3d = 1.2, rotation = 0,
+          wallMounted, mountHeight = 0, elevationZ = 0,
+          fuelLevel = 0, fuelColor = '#F59E0B' } = item;
+  const px = x + width / 2;
+  const pz = y + depth / 2;
+  const baseY = FLOOR_THICK + elevationZ + (wallMounted ? mountHeight : 0);
+  const rotRad = -(rotation * Math.PI) / 180;
+  const fuelH = height3d * Math.min(100, Math.max(0, fuelLevel)) / 100;
+
+  return (
+    <group position={[px, baseY + height3d / 2, pz]} rotation={[0, rotRad, 0]}>
+      {/* Fuel fill — rises from bottom */}
+      {fuelH > 0.01 && (
+        <mesh position={[0, -height3d / 2 + fuelH / 2, 0]}>
+          <boxGeometry args={[width * 0.88, fuelH, depth * 0.88]} />
+          <meshStandardMaterial color={fuelColor} transparent opacity={0.82} />
+        </mesh>
+      )}
+      {/* Tank body — semi-transparent walls so fuel is visible */}
+      <mesh>
+        <boxGeometry args={[width, height3d, depth]} />
+        <meshStandardMaterial color={color} metalness={0.3} roughness={0.5} transparent opacity={0.45} depthWrite={false} />
+      </mesh>
+      {/* Opaque frame edges */}
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(width, height3d, depth)]} />
+        <lineBasicMaterial color={color} />
+      </lineSegments>
+      {/* Top nozzle */}
+      <mesh position={[0, height3d / 2 + 0.06, 0]}>
+        <cylinderGeometry args={[0.04, 0.04, 0.12, 12]} />
+        <meshStandardMaterial color="#718096" metalness={0.6} roughness={0.3} />
+      </mesh>
+    </group>
+  );
+});
+
+// ── Oval fuel tank — horizontal elliptic cylinder (tilted 90° on Z) ───────────
+const OvalTankMesh = React.memo(({ item }) => {
+  const { x, y, width, depth, color = '#4A5568', height3d = 1.2, rotation = 0,
+          wallMounted, mountHeight = 0, elevationZ = 0,
+          fuelLevel = 0, fuelColor = '#F59E0B' } = item;
+  const cx = x + width / 2;
+  const cz = y + depth / 2;
+  const baseY = FLOOR_THICK + elevationZ + (wallMounted ? mountHeight : 0);
+  const rotRad = -(rotation * Math.PI) / 180;
+  const saddleW = Math.min(0.07, width * 0.05);
+  const fuelFrac = Math.min(1, Math.max(0, (fuelLevel ?? 0) / 100));
+  const fuelH    = height3d * fuelFrac;
+
+  // Clipping plane in world space: hides everything ABOVE the fill line Y.
+  // Group center is at baseY + height3d/2, so fill-line world Y = baseY + fuelH.
+  const clipPlane = useMemo(
+    () => new THREE.Plane(new THREE.Vector3(0, -1, 0), baseY + fuelH),
+    [baseY, fuelH]
+  );
+
+  // At the fill line, local Y = -height3d/2 + fuelH.
+  // The cylinder cross-section at normalised y (−1…+1) has Z half-width = depth/2 * sqrt(1 − y²).
+  // This gives us the exact chord width of the liquid surface.
+  const yNorm    = (fuelH / height3d) * 2 - 1;           // −1 at bottom, +1 at top
+  const chordZ   = depth * Math.sqrt(Math.max(0, 1 - yNorm * yNorm));
+
+  return (
+    <group position={[cx, baseY + height3d / 2, cz]} rotation={[0, rotRad, 0]}>
+      {/* Fuel volume — same cylinder geometry as the body, clipped at fill level */}
+      {fuelFrac > 0.005 && (
+        <mesh rotation={[0, 0, Math.PI / 2]} scale={[height3d, width, depth]}>
+          <cylinderGeometry args={[0.5, 0.5, 1, 40]} />
+          <meshStandardMaterial
+            color={fuelColor} transparent opacity={0.78}
+            clippingPlanes={[clipPlane]}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+      {/* Liquid surface disc — exact chord ellipse at the fill line */}
+      {fuelFrac > 0.005 && fuelFrac < 0.995 && (
+        <mesh position={[0, -height3d / 2 + fuelH, 0]}>
+          <boxGeometry args={[width * 0.995, 0.012, chordZ * 0.995]} />
+          <meshStandardMaterial color={fuelColor} transparent opacity={0.92} />
+        </mesh>
+      )}
+      {/* Main body — semi-transparent so fuel is visible inside */}
+      <mesh rotation={[0, 0, Math.PI / 2]} scale={[height3d, width, depth]}>
+        <cylinderGeometry args={[0.5, 0.5, 1, 40]} />
+        <meshStandardMaterial color={color} metalness={0.4} roughness={0.45} transparent opacity={0.5} depthWrite={false} />
+      </mesh>
+
+      {/* Left end cap */}
+      <mesh position={[-width / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]} scale={[height3d * 0.98, 0.06, depth * 0.98]}>
+        <cylinderGeometry args={[0.5, 0.5, 1, 40]} />
+        <meshStandardMaterial color="#8899A6" metalness={0.7} roughness={0.25} />
+      </mesh>
+
+      {/* Right end cap */}
+      <mesh position={[width / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]} scale={[height3d * 0.98, 0.06, depth * 0.98]}>
+        <cylinderGeometry args={[0.5, 0.5, 1, 40]} />
+        <meshStandardMaterial color="#8899A6" metalness={0.7} roughness={0.25} />
+      </mesh>
+
+      {/* Centre band */}
+      <mesh rotation={[0, 0, Math.PI / 2]} scale={[height3d * 1.005, 0.05, depth * 1.005]}>
+        <cylinderGeometry args={[0.5, 0.5, 1, 40]} />
+        <meshStandardMaterial color="#2D3748" metalness={0.5} roughness={0.3} />
+      </mesh>
+
+      {/* Top nozzle */}
+      <mesh position={[0, height3d / 2 + 0.06, 0]}>
+        <cylinderGeometry args={[0.04, 0.04, 0.12, 12]} />
+        <meshStandardMaterial color="#718096" metalness={0.6} roughness={0.3} />
+      </mesh>
+
+      {/* Left saddle support */}
+      <mesh position={[-width * 0.28, -height3d / 2 + 0.04, 0]}>
+        <boxGeometry args={[saddleW, height3d * 0.12, depth * 0.85]} />
+        <meshStandardMaterial color="#718096" metalness={0.5} roughness={0.4} />
+      </mesh>
+
+      {/* Right saddle support */}
+      <mesh position={[width * 0.28, -height3d / 2 + 0.04, 0]}>
+        <boxGeometry args={[saddleW, height3d * 0.12, depth * 0.85]} />
+        <meshStandardMaterial color="#718096" metalness={0.5} roughness={0.4} />
+      </mesh>
+    </group>
+  );
+});
+
 // ── Combined furniture mesh: GLB if modelPath present, else box ───────────────
 const FurnitureMesh = React.memo(({ item }) => {
   if (item.type === 'battery-bank') return <BatteryBankMesh item={item} />;
   if (item.type === 'pod') return <PodMesh item={item} />;
+  if (item.type === 'fuel-tank-oval') return <OvalTankMesh item={item} />;
+  if (item.type === 'fuel-tank-rect' || item.type === 'fuel-tank-square') return <BoxTankMesh item={item} />;
 
-  const { x, y, width, depth, color = '#C8A080', height3d = 0.8, rotation = 0, modelPath, wallMounted, mountHeight = 0 } = item;
+  const { x, y, width, depth, color = '#C8A080', height3d = 0.8, rotation = 0, modelPath, wallMounted, mountHeight = 0, elevationZ = 0 } = item;
 
   const px = x + width / 2;
   const pz = y + depth / 2;
-  const baseY = FLOOR_THICK + (wallMounted ? mountHeight : 0);
+  const baseY = FLOOR_THICK + elevationZ + (wallMounted ? mountHeight : 0);
 
   if (!modelPath) {
     return (
@@ -478,9 +611,9 @@ const DoorMesh = React.memo(({ door, room }) => {
   );
 });
 
-// ── Clean ground plane (no grid) ──────────────────────────────────────────────
-const Ground = () => (
-  <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
+// ── Clean ground plane — sits below the lowest underground item ───────────────
+const Ground = ({ floorY = -0.01 }) => (
+  <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, floorY, 0]}>
     <planeGeometry args={[400, 400]} />
     <meshStandardMaterial color="#FFFFFF" roughness={1} emissive="#FFFFFF" emissiveIntensity={0.15} />
   </mesh>
@@ -613,7 +746,7 @@ const FloorPlan3DScene = () => {
   const hasContent = rooms.length > 0 || (walls && walls.length > 0);
 
   // Compute tight bounding box over rooms + freestanding walls
-  const { center, camPos } = useMemo(() => {
+  const { center, camPos, floorY } = useMemo(() => {
     const pts = [
       ...rooms.flatMap((r) => [
         { x: r.x, z: r.y }, { x: r.x + r.width, z: r.y + r.height },
@@ -622,7 +755,7 @@ const FloorPlan3DScene = () => {
         { x: w.x1, z: w.y1 }, { x: w.x2, z: w.y2 },
       ]),
     ];
-    if (!pts.length) return { center: [0, 0, 0], camPos: [10, 18, 10] };
+    if (!pts.length) return { center: [0, 0, 0], camPos: [10, 18, 10], floorY: -0.01 };
 
     const minX = Math.min(...pts.map((p) => p.x));
     const maxX = Math.max(...pts.map((p) => p.x));
@@ -634,16 +767,24 @@ const FloorPlan3DScene = () => {
     const spanZ = maxZ - minZ;
     const span  = Math.max(spanX, spanZ, 4);
 
-    // Position camera more top-down: height ≈ span, small horizontal offset
-    // This keeps the view scale matching the 2D footprint closely
+    // Compute vertical extent from furniture elevationZ values
+    const minElev = furniture.length
+      ? Math.min(0, ...furniture.map((f) => f.elevationZ || 0))
+      : 0;
+    const maxElev = furniture.length
+      ? Math.max(0, ...furniture.map((f) => (f.elevationZ || 0) + (f.height3d || 0)))
+      : 0;
+    const cy = (minElev + maxElev) / 2;
+
     const h  = span * 1.1 + 4;
     const xz = span * 0.18 + 1;
 
     return {
-      center: [cx, 0, cz],
-      camPos: [cx + xz, h, cz + xz],
+      center: [cx, cy, cz],
+      camPos: [cx + xz, cy + h, cz + xz],
+      floorY: minElev > 0 ? -0.01 : minElev - 0.3,
     };
-  }, [rooms]);
+  }, [rooms, furniture]);
 
   const doorsByRoom = useMemo(() => {
     const map = {};
@@ -659,6 +800,7 @@ const FloorPlan3DScene = () => {
       <Canvas
         key={`${camPos[0].toFixed(1)}-${camPos[1].toFixed(1)}-${camPos[2].toFixed(1)}`}
         camera={{ position: camPos, fov: 38, near: 0.1, far: 500 }}
+        gl={{ localClippingEnabled: true }}
         style={{ width: '100%', height: '100%' }}
       >
         <color attach="background" args={['#FFFFFF']} />
@@ -669,7 +811,7 @@ const FloorPlan3DScene = () => {
         <hemisphereLight skyColor="#FFFFFF" groundColor="#FFFFFF" intensity={0.5} />
 
         <Suspense fallback={null}>
-          <Ground />
+          <Ground floorY={floorY} />
 
           {!hasContent && <EmptyState />}
 

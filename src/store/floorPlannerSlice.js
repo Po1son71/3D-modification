@@ -19,6 +19,7 @@ const TYPE_PREFIX = {
   'bathtub': 'BTH', 'toilet': 'TLT', 'shower': 'SHW',
   'bathroom-sink': 'BSN', 'vanity': 'VNT',
   'pod': 'POD', 'battery-bank': 'BAT',
+  'fuel-tank-rect': 'FTR', 'fuel-tank-square': 'FTS', 'fuel-tank-oval': 'FTO',
 };
 
 const nextAssetId = (type, furnitureList) => {
@@ -176,6 +177,11 @@ export const FURNITURE_CATALOG = {
     { type: 'shower',        name: 'Shower',         width: 0.9,  depth: 0.9,  color: '#D0E8F0', height3d: 0.05 },
     { type: 'bathroom-sink', name: 'Sink',           width: 0.5,  depth: 0.4,  color: '#F0F0F0', height3d: 0.85 },
     { type: 'vanity',        name: 'Vanity',         width: 1.2,  depth: 0.5,  color: '#E0E0E0', height3d: 0.9 },
+  ],
+  'Fuel Tank': [
+    { type: 'fuel-tank-rect',   name: 'Rectangle Tank', width: 2.0, depth: 1.0, color: '#4A5568', height3d: 1.2, tankCapacity: 1000 },
+    { type: 'fuel-tank-square', name: 'Square Tank',     width: 1.3, depth: 1.3, color: '#4A5568', height3d: 1.3, tankCapacity: 1000 },
+    { type: 'fuel-tank-oval',   name: 'Oval Tank',       width: 1.8, depth: 1.0, color: '#4A5568', height3d: 1.2, tankCapacity: 1000 },
   ],
   'Power Infrastructure': {
     'POD': {
