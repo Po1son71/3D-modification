@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import useFloorPlannerStore, {
+  CABLE_TYPES,
   getWallEndpoints,
   getDoorInfo,
   getSharedWallDoors,
@@ -609,8 +610,91 @@ const ContextMenu = ({
   );
 };
 
+// ── Rotation-aware front/back ports ──────────────────────────────────────────
+// "Front" = the face with local normal (0, +1) i.e. the bottom face when unrotated.
+// "Back"  = opposite face, local normal (0, -1).
+// Both normals rotate with the item so ports always exit perpendicular to the face.
+function getItemPorts(item) {
+  const cx = item.x + item.width / 2;
+  const cy = item.y + item.depth / 2;
+  const R  = ((item.rotation || 0) * Math.PI) / 180;
+  const hd = item.depth / 2;  // half-depth in local space
+  const sinR = Math.sin(R), cosR = Math.cos(R);
+
+  return {
+    // Front face (bottom when rotation=0): local (0, +hd)
+    front: { x: cx - hd * sinR, y: cy + hd * cosR, nx: -sinR, ny:  cosR },
+    // Back  face (top  when rotation=0): local (0, -hd)
+    back:  { x: cx + hd * sinR, y: cy - hd * cosR, nx:  sinR, ny: -cosR },
+  };
+}
+
+// Nearest port on `item` to world point (tx, ty)
+function nearestPort(item, tx, ty) {
+  const { front, back } = getItemPorts(item);
+  return Math.hypot(front.x - tx, front.y - ty) <= Math.hypot(back.x - tx, back.y - ty)
+    ? front : back;
+}
+
+// ── Shortest front/back-only cable route ─────────────────────────────────────
+function routeCable(from, to) {
+  const MARGIN = 0.4;  // exit distance from face
+  const CLEAR  = 0.5;  // extra clearance for U / ∩ shape
+
+  const toCx = to.x + to.width / 2,   toCy = to.y + to.depth / 2;
+  const frCx = from.x + from.width / 2, frCy = from.y + from.depth / 2;
+
+  const fPort  = nearestPort(from, toCx, toCy);
+  const tPort  = nearestPort(to,   frCx, frCy);
+  const fExit  = { x: fPort.x + fPort.nx * MARGIN, y: fPort.y + fPort.ny * MARGIN };
+  const tEntry = { x: tPort.x + tPort.nx * MARGIN, y: tPort.y + tPort.ny * MARGIN };
+
+  // Same-direction normals → ports face the same way → need U or ∩ routing
+  if (fPort.ny * tPort.ny > 0.1) {
+    if (fPort.ny > 0) {
+      // Both exit downward → U-shape below components
+      const clearY = Math.max(
+        from.y + from.depth, to.y + to.depth,
+        fExit.y, tEntry.y
+      ) + CLEAR;
+      return [fPort, fExit,
+        { x: fExit.x,  y: clearY },
+        { x: tEntry.x, y: clearY },
+        tEntry, tPort];
+    } else {
+      // Both exit upward → ∩-shape above components
+      const clearY = Math.min(
+        from.y, to.y,
+        fExit.y, tEntry.y
+      ) - CLEAR;
+      return [fPort, fExit,
+        { x: fExit.x,  y: clearY },
+        { x: tEntry.x, y: clearY },
+        tEntry, tPort];
+    }
+  }
+
+  // Opposite directions (one up, one down) → straight S-path through midY
+  const midY = (fExit.y + tEntry.y) / 2;
+  if (Math.abs(fExit.x - tEntry.x) < 0.05) return [fPort, fExit, tEntry, tPort];
+  return [fPort, fExit,
+    { x: fExit.x,  y: midY },
+    { x: tEntry.x, y: midY },
+    tEntry, tPort];
+}
+
+// ── Live preview while dragging ───────────────────────────────────────────────
+function routePreview(from, toWX, toWY) {
+  const MARGIN = 0.4;
+  const fPort = nearestPort(from, toWX, toWY);
+  const fExit = { x: fPort.x + fPort.nx * MARGIN, y: fPort.y + fPort.ny * MARGIN };
+  const midY  = (fExit.y + toWY) / 2;
+  if (Math.abs(fExit.x - toWX) < 0.05) return [fPort, fExit, { x: toWX, y: toWY }];
+  return [fPort, fExit, { x: fExit.x, y: midY }, { x: toWX, y: midY }, { x: toWX, y: toWY }];
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
-const FloorPlanEditor = ({ isDark = false }) => {
+const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type: 'network', fromId: null }, setCableConnect = () => {} }) => {
   const containerRef = useRef(null);
   const canvasRef    = useRef(null);
 
@@ -643,6 +727,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
   const dragRef        = useRef(null);    // active drag state
   const panRef         = useRef(null);    // pan state
   const hoverRef       = useRef(null);    // furniture hover position
+  const cableHoverRef  = useRef(null);    // furniture item hovered in cable mode
   const doorHoverRef   = useRef(null);    // door placement preview
   const boxSelectRef    = useRef(null);    // box-select drag: { startSX, startSY, curSX, curSY, additive }
   const hoverHandleRef  = useRef(null);    // handle corner/edge key the mouse is hovering ('nw', 'n', …)
@@ -678,6 +763,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
     undo, redo, rotateSelectedFurniture,
     copySelected, pasteClipboard,
     groupSelected, ungroupSelected, deleteGroup, ungroupIds, renameGroup,
+    cables, addCable,
   } = useFloorPlannerStore();
 
   const [contextMenu, setContextMenu] = useState(null); // { x, y, kind, groupId? }
@@ -956,6 +1042,140 @@ const FloorPlanEditor = ({ isDark = false }) => {
       if (fw) drawFWDoor(ctx, door, fw, selectedIds.includes(door.id));
     });
     furniture.forEach((item) => drawFurniture(ctx, item, selectedIds.includes(item.id)));
+
+    // ── Port indicators — show only on hovered/source item ──────────────────
+    const sc = scaleRef.current;
+    if (cableConnect.active) {
+      const typeColor = CABLE_TYPES[cableConnect.type]?.color || '#22C55E';
+      const cd = dragRef.current?.type === 'cable' ? dragRef.current : null;
+
+      // Items to show ports on: source (while dragging) + hover target + hovered item (idle)
+      const showPorts = new Set();
+      if (cd) { showPorts.add(cd.fromId); if (cableHoverRef.current) showPorts.add(cableHoverRef.current.id); }
+      else     { if (cableHoverRef.current) showPorts.add(cableHoverRef.current.id); }
+
+      furniture.forEach((item) => {
+        if (!showPorts.has(item.id)) return;
+        const isSrc = cd?.fromId === item.id;
+        const isTgt = cd && cableHoverRef.current?.id === item.id;
+        const ports = getItemPorts(item);
+        [ports.front, ports.back].forEach((pt) => {
+          const sp = toScreen(pt.x, pt.y);
+          ctx.save();
+          ctx.strokeStyle = typeColor;
+          ctx.fillStyle   = (isSrc || isTgt) ? typeColor : 'white';
+          ctx.lineWidth   = Math.max(1.5, 1.8 * sc);
+          ctx.shadowColor = typeColor;
+          ctx.shadowBlur  = (isSrc || isTgt) ? 8 : 5;
+          ctx.beginPath();
+          ctx.arc(sp.x, sp.y, 4.5 * sc, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        });
+      });
+    }
+
+    // ── Draw cables (routed polylines) ──────────────────────────────────────
+
+    const drawPolyline = (pts, color, dashed = false, alpha = 1) => {
+      if (pts.length < 2) return;
+      const R = 6 * sc; // corner rounding radius in screen px
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = Math.max(1.5, 2 * sc);
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.globalAlpha = alpha;
+      ctx.shadowColor = color;
+      ctx.shadowBlur  = dashed ? 0 : 4;
+      if (dashed) ctx.setLineDash([6 * sc, 4 * sc]);
+      ctx.beginPath();
+      const s = pts.map((p) => toScreen(p.x, p.y));
+      ctx.moveTo(s[0].x, s[0].y);
+      for (let i = 1; i < s.length - 1; i++) {
+        // Rounded corner: arc from previous segment to next
+        ctx.arcTo(s[i].x, s[i].y, s[i + 1].x, s[i + 1].y, R);
+      }
+      ctx.lineTo(s[s.length - 1].x, s[s.length - 1].y);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const activeSel = selectedIds[0] ?? null;
+    const hasSelection = !!activeSel;
+
+    (cables || []).forEach((cable) => {
+      const from = furniture.find((f) => f.id === cable.fromId);
+      const to   = furniture.find((f) => f.id === cable.toId);
+      if (!from || !to) return;
+
+      const isConnected = hasSelection && (cable.fromId === activeSel || cable.toId === activeSel);
+      const alpha = hasSelection ? (isConnected ? 1 : 0.12) : 1;
+
+      const pts = routeCable(from, to);
+      drawPolyline(pts, cable.color, false, alpha);
+
+      // Endpoint dots — bigger and glowing for active connections
+      ctx.save();
+      ctx.fillStyle = cable.color;
+      ctx.globalAlpha = alpha;
+      ctx.shadowColor = cable.color;
+      ctx.shadowBlur  = isConnected ? 8 : 4;
+      [pts[0], pts[pts.length - 1]].forEach((pt) => {
+        const sp = toScreen(pt.x, pt.y);
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, (isConnected ? 4.5 : 3) * sc, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+
+      // Label — only show for active connections
+      if (cable.label && (!hasSelection || isConnected)) {
+        const mid = pts[Math.floor(pts.length / 2)];
+        const sp  = toScreen(mid.x, mid.y);
+        ctx.save();
+        ctx.font = `${Math.max(8, 9 * sc)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillStyle = cable.color;
+        ctx.fillText(cable.label, sp.x, sp.y - 4 * sc);
+        ctx.restore();
+      }
+    });
+
+    // ── Live cable drag preview ──────────────────────────────────────────────
+    const cd = dragRef.current;
+    if (cd?.type === 'cable') {
+      const fromItem = furniture.find((f) => f.id === cd.fromId);
+      if (fromItem) {
+        const typeColor = CABLE_TYPES[cableConnect.type]?.color || '#22C55E';
+        const tgtItem = cableHoverRef.current;
+
+        // If hovering over a valid target, snap preview to its port
+        let previewPts;
+        if (tgtItem) {
+          previewPts = routeCable(fromItem, tgtItem);
+        } else {
+          previewPts = routePreview(fromItem, cd.curWX, cd.curWY);
+        }
+        drawPolyline(previewPts, typeColor, !tgtItem, tgtItem ? 1 : 0.7);
+
+        // Highlight target component with a glowing ring
+        if (tgtItem) {
+          const tsp = toScreen(tgtItem.x, tgtItem.y);
+          const tsw = tgtItem.width * PPM * sc, tsd = tgtItem.depth * PPM * sc;
+          ctx.save();
+          ctx.strokeStyle = typeColor;
+          ctx.lineWidth = Math.max(2, 2.5 * sc);
+          ctx.shadowColor = typeColor;
+          ctx.shadowBlur = 10;
+          ctx.globalAlpha = 0.7;
+          ctx.strokeRect(tsp.x, tsp.y, tsw, tsd);
+          ctx.restore();
+        }
+      }
+    }
+
     // Group outlines drawn LAST so they appear on top of rooms and furniture
     groups.forEach((group) => drawGroupOutline(ctx, group));
 
@@ -1387,7 +1607,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
     // ════════════════════════════════════════════════════════════════════════
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rooms, furniture, doors, walls, groups, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick]);
+  }, [rooms, furniture, doors, walls, groups, cables, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick, cableConnect, selectedIds]);
 
   // ── Group outline ─────────────────────────────────────────────────────────
   const drawGroupOutline = (ctx, group) => {
@@ -2607,6 +2827,19 @@ const FloorPlanEditor = ({ isDark = false }) => {
     const { sx, sy } = getMP(e);
     const { x: wx, y: wy } = toWorld(sx, sy);
 
+    // ── Cable drag-connect mode ──────────────────────────────────────────────
+    if (cableConnect.active && e.button === 0) {
+      const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
+      const hit = [...furniture].reverse().find((f) =>
+        ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
+      );
+      if (hit) {
+        dragRef.current = { type: 'cable', fromId: hit.id, fromItem: hit, curWX: wx, curWY: wy };
+        forceRender((n) => n + 1);
+      }
+      return;
+    }
+
     // Right-click → context menu
     if (e.button === 2) {
       e.preventDefault();
@@ -3025,6 +3258,18 @@ const FloorPlanEditor = ({ isDark = false }) => {
 
     if (dragRef.current) {
       const d = dragRef.current;
+
+      if (d.type === 'cable') {
+        dragRef.current = { ...d, curWX: wx, curWY: wy };
+        // Highlight target item while dragging
+        const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
+        cableHoverRef.current = furniture.find(
+          (f) => f.id !== d.fromId && ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
+        ) ?? null;
+        forceRender((n) => n + 1);
+        return;
+      }
+
       const dx = wx - d.startWX, dy = wy - d.startWY;
 
       if (d.type === 'rotate') {
@@ -3301,6 +3546,17 @@ const FloorPlanEditor = ({ isDark = false }) => {
       forceRender((n) => n + 1);
     }
 
+    if (cableConnect.active && !dragRef.current) {
+      const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
+      const hit = [...furniture].reverse().find((f) =>
+        ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
+      );
+      if (hit !== cableHoverRef.current) {
+        cableHoverRef.current = hit ?? null;
+        forceRender((n) => n + 1);
+      }
+    }
+
     if (activeTool === 'door') {
       const roomHit = findNearestWall(wx, wy, rooms);
       if (roomHit) {
@@ -3354,12 +3610,29 @@ const FloorPlanEditor = ({ isDark = false }) => {
     }
   };
 
-  const onMouseUp = () => {
+  const onMouseUp = (e) => {
     if (panRef.current)  { panRef.current = null; return; }
     if (dragRef.current) {
+      const d = dragRef.current;
+
+      if (d.type === 'cable') {
+        // Find the furniture item under the mouse
+        const { sx, sy } = getMP(e);
+        const { x: wx, y: wy } = toWorld(sx, sy);
+        const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
+        const target = [...furniture].reverse().find((f) =>
+          f.id !== d.fromId && ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
+        );
+        if (target) {
+          addCable({ fromId: d.fromId, toId: target.id, type: cableConnect.type });
+        }
+        dragRef.current = null;
+        forceRender((n) => n + 1);
+        return;
+      }
+
       dragRef.current = null;
       wallSnapRef.current = null;
-
       alignGuidesRef.current = [];
       return;
     }
@@ -3441,6 +3714,8 @@ const FloorPlanEditor = ({ isDark = false }) => {
 
   const cursor =
     panRef.current                                          ? 'grabbing' :
+    cableConnect.active && dragRef.current?.type === 'cable' ? 'grabbing' :
+    cableConnect.active                                     ? 'crosshair' :
     activeTool === 'room'                                   ? 'crosshair' :
     activeTool === 'wall'                                   ? 'crosshair' :
     activeTool === 'furniture'                              ? 'copy' :
@@ -3470,7 +3745,7 @@ const FloorPlanEditor = ({ isDark = false }) => {
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
-        onMouseLeave={() => { panRef.current = null; hoverRef.current = null; doorHoverRef.current = null; hoverHandleRef.current = null; hoverRotateRef.current = false; wallSnapRef.current = null; }}
+        onMouseLeave={() => { panRef.current = null; hoverRef.current = null; cableHoverRef.current = null; doorHoverRef.current = null; hoverHandleRef.current = null; hoverRotateRef.current = false; wallSnapRef.current = null; }}
         onContextMenu={(e) => e.preventDefault()}
       />
 

@@ -9,7 +9,7 @@ import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 import { store } from './index';
 
 // Re-export utilities and catalog unchanged
-export { FURNITURE_CATALOG, getWallEndpoints, getSharedWallDoors, getWallInward, getDoorInfo, getWorldWallFace } from './floorPlannerSlice';
+export { FURNITURE_CATALOG, CABLE_TYPES, getWallEndpoints, getSharedWallDoors, getWallInward, getDoorInfo, getWorldWallFace } from './floorPlannerSlice';
 
 // Import all action creators / thunks from the slice
 import * as actions from './floorPlannerSlice';
@@ -60,6 +60,11 @@ const makeActions = (dispatch) => ({
   addWall:    (data)        => dispatch(actions.addWall(data)),
   updateWall: (id, updates) => dispatch(actions.updateWall({ id, updates })),
   deleteWall: (id)          => dispatch(actions.deleteWall(id)),
+
+  // Cables
+  addCable:    (data)        => dispatch(actions.addCable(data)),
+  updateCable: (id, updates) => dispatch(actions.updateCable({ id, updates })),
+  deleteCable: (id)          => dispatch(actions.deleteCable(id)),
 
   // Multi-type
   deleteSelected:          ()        => dispatch(actions.deleteSelected()),

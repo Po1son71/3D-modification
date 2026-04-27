@@ -22,6 +22,16 @@ const TYPE_PREFIX = {
   'fuel-tank-rect': 'FTR', 'fuel-tank-square': 'FTS', 'fuel-tank-oval': 'FTO',
 };
 
+// ── Cable types ───────────────────────────────────────────────────────────────
+export const CABLE_TYPES = {
+  network:    { label: 'Network',    color: '#22C55E' },
+  power:      { label: 'Power',      color: '#EF4444' },
+  fiber:      { label: 'Fiber',      color: '#F59E0B' },
+  management: { label: 'Management', color: '#8B5CF6' },
+  kvm:        { label: 'KVM',        color: '#06B6D4' },
+  custom:     { label: 'Custom',     color: '#94A3B8' },
+};
+
 const nextAssetId = (type, furnitureList) => {
   const prefix = TYPE_PREFIX[type] || type.replace(/-/g, '').toUpperCase().slice(0, 4);
   const pat    = new RegExp(`^${prefix}-(\\d+)$`);
@@ -360,6 +370,7 @@ const makeSnapshot = (state) => ({
   doors:     current(state.doors),
   walls:     current(state.walls),
   groups:    current(state.groups),
+  cables:    current(state.cables),
 });
 
 // ── Initial state ─────────────────────────────────────────────────────────────
@@ -368,6 +379,7 @@ const initialState = {
   furniture:          [],
   doors:              [],
   walls:              [],
+  cables:             [],
   selectedIds:        [],
   lockedIds:          [],
   groups:             [],
@@ -412,6 +424,7 @@ const floorPlannerSlice = createSlice({
       state.doors     = prev.doors;
       state.walls     = prev.walls     ?? [];
       state.groups    = prev.groups    ?? [];
+      state.cables    = prev.cables    ?? [];
       state.selectedIds = [];
     },
 
@@ -426,6 +439,7 @@ const floorPlannerSlice = createSlice({
       state.doors     = next.doors;
       state.walls     = next.walls     ?? [];
       state.groups    = next.groups    ?? [];
+      state.cables    = next.cables    ?? [];
       state.selectedIds = [];
     },
 
@@ -559,6 +573,19 @@ const floorPlannerSlice = createSlice({
       const idx = state.walls.findIndex((w) => w.id === id);
       if (idx !== -1) state.walls[idx] = { ...state.walls[idx], ...updates };
     },
+
+    // ── Cables ────────────────────────────────────────────────────────────────
+    addCable(state, { payload: { fromId, toId, type, label = '' } }) {
+      const typeInfo = (CABLE_TYPES)[type] || CABLE_TYPES.network;
+      state.cables.push({ id: `cable-${uid()}`, fromId, toId, type, color: typeInfo.color, label });
+    },
+    updateCable(state, { payload: { id, updates } }) {
+      const c = state.cables.find((c) => c.id === id);
+      if (c) Object.assign(c, updates);
+    },
+    deleteCable(state, { payload: id }) {
+      state.cables = state.cables.filter((c) => c.id !== id);
+    },
     _deleteWallSync(state, { payload: id }) {
       state.walls       = state.walls.filter((w) => w.id !== id);
       state.doors       = state.doors.filter((d) => d.wallId !== id);
@@ -657,7 +684,7 @@ const floorPlannerSlice = createSlice({
     // ── Clear all ──────────────────────────────────────────────────────────
     _clearAllSync(state) {
       state.rooms = []; state.furniture = []; state.doors = [];
-      state.walls = []; state.groups    = [];
+      state.walls = []; state.groups    = []; state.cables = [];
       state.selectedIds = []; state.lockedIds = [];
     },
 
@@ -668,15 +695,17 @@ const floorPlannerSlice = createSlice({
       state.doors       = data.doors      || [];
       state.walls       = data.walls      || [];
       state.groups      = data.groups     || [];
+      state.cables      = data.cables     || [];
       state.selectedIds = [];
       state.lockedIds   = [];
     },
-    _mergeSync(state, { payload: { rooms, furniture, doors, walls, groups } }) {
+    _mergeSync(state, { payload: { rooms, furniture, doors, walls, groups, cables } }) {
       state.rooms       = [...state.rooms,     ...rooms];
       state.furniture   = [...state.furniture, ...furniture];
       state.doors       = [...state.doors,     ...doors];
       state.walls       = [...state.walls,     ...walls];
       state.groups      = [...state.groups,    ...groups];
+      state.cables      = [...state.cables,    ...(cables || [])];
       state.selectedIds = [
         ...rooms.map((r) => r.id),
         ...furniture.map((f) => f.id),
@@ -705,8 +734,18 @@ export const {
   selectOne, selectAdd, setSelectedIds, clearSelection, setSelectedId,
   toggleLock, lockSelected, unlockSelected,
   updateRoom, updateFurniture, updateDoor, updateWall,
+  updateCable,
   renameGroup,
 } = sa;
+
+export const addCable = (payload) => (dispatch) => {
+  dispatch(sa.pushHistory());
+  dispatch(sa.addCable(payload));
+};
+export const deleteCable = (id) => (dispatch) => {
+  dispatch(sa.pushHistory());
+  dispatch(sa.deleteCable(id));
+};
 
 // ── Thunks: history-pushing actions ──────────────────────────────────────────
 export const undo = () => (dispatch, getState) => {
@@ -852,7 +891,7 @@ export const clearAll = () => (dispatch) => {
 };
 
 export const exportLayout = () => (dispatch, getState) => {
-  const { rooms, furniture, doors, walls, groups } = getState().floorPlanner;
+  const { rooms, furniture, doors, walls, groups, cables } = getState().floorPlanner;
   const getRoomId = (asset) => {
     const cx = asset.x + asset.width / 2;
     const cy = asset.y + asset.depth / 2;
@@ -867,7 +906,8 @@ export const exportLayout = () => (dispatch, getState) => {
     assets: furniture.map((f) => ({ ...f, assetId: f.assetId || '', sensors: f.sensors || [], roomId: getRoomId(f) })),
     doors:  doors.map((d) => ({ ...d })),
     walls:  walls.map((w) => ({ ...w })),
-    groups: groups.map((g) => ({ ...g })),
+    groups:  groups.map((g) => ({ ...g })),
+    cables:  cables.map((c) => ({ ...c })),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
@@ -900,6 +940,7 @@ export const mergeLayout = (jsonText) => (dispatch) => {
     const inDoors     = data.doors     || [];
     const inWalls     = data.walls     || [];
     const inGroups    = data.groups    || [];
+    const inCables    = data.cables    || [];
 
     const roomIdMap = {};
     const rooms = inRooms.map((r) => { const id = `room-${uid()}`; roomIdMap[r.id] = id; return { ...r, id }; });
@@ -919,7 +960,14 @@ export const mergeLayout = (jsonText) => (dispatch) => {
       itemIds: g.itemIds.map((id) => furniIdMap[id] || roomIdMap[id] || wallIdMap[id] || id),
     }));
 
-    dispatch(sa._mergeSync({ rooms, furniture, doors, walls, groups }));
+    const cables = inCables.map((c) => ({
+      ...c,
+      id:     `cable-${uid()}`,
+      fromId: furniIdMap[c.fromId] || c.fromId,
+      toId:   furniIdMap[c.toId]   || c.toId,
+    }));
+
+    dispatch(sa._mergeSync({ rooms, furniture, doors, walls, groups, cables }));
     dispatch(showMsg('Layout merged'));
   } catch {
     dispatch(showMsg('Merge failed — invalid JSON'));

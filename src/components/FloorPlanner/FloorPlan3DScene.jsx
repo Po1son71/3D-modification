@@ -859,6 +859,7 @@ const FloorPlan3DScene = () => {
           {furniture.map((item) => (
             <FurnitureMesh key={item.id} item={item} />
           ))}
+
         </Suspense>
 
         <OrbitControls

@@ -3,6 +3,7 @@ import FloorPlanEditor from '../components/FloorPlanner/FloorPlanEditor';
 import FloorPlan3DScene from '../components/FloorPlanner/FloorPlan3DScene';
 import FurnitureCatalog from '../components/FloorPlanner/FurnitureCatalog';
 import FloorPlanProperties from '../components/FloorPlanner/FloorPlanProperties';
+import CablePanel from '../components/FloorPlanner/CablePanel';
 import useFloorPlannerStore from '../store/floorPlannerStore';
 import { useFloorTheme } from '../components/FloorPlanner/floorPlanTheme';
 
@@ -65,6 +66,7 @@ const FloorPlannerPage = () => {
 
   const jsonInputRef = useRef(null);
   const [pendingJson, setPendingJson] = useState(null);
+  const [cableConnect, setCableConnect] = useState({ active: false, type: 'network' });
 
   const handleLoadJson = useCallback((e) => {
     const file = e.target.files[0];
@@ -336,7 +338,9 @@ const FloorPlannerPage = () => {
           flex: 1, overflow: 'hidden', position: 'relative',
           background: T.bg,
         }}>
-          {viewMode === '2d' ? <FloorPlanEditor isDark={isDark} /> : <FloorPlan3DScene />}
+          {viewMode === '2d'
+            ? <FloorPlanEditor isDark={isDark} cableConnect={cableConnect} setCableConnect={setCableConnect} />
+            : <FloorPlan3DScene />}
 
           {/* Canvas overlay: selection info */}
           {anySelected && viewMode === '2d' && (
@@ -360,6 +364,9 @@ const FloorPlannerPage = () => {
         {/* Right panel */}
         <FloorPlanProperties />
       </div>
+
+      {/* ── Cable panel ──────────────────────────────────────────── */}
+      <CablePanel cableConnect={cableConnect} setCableConnect={setCableConnect} />
 
       {/* ── Status bar ───────────────────────────────────────────── */}
       <div style={{
