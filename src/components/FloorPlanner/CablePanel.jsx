@@ -203,12 +203,16 @@ const CablePanel = ({ cableConnect, setCableConnect }) => {
   };
 
   return (
+    // position:relative so the absolute popup is anchored here.
+    // height is always exactly 34px — the canvas above never resizes.
     <div style={{
-      flexShrink: 0, borderTop: `1px solid ${T.border}`,
+      flexShrink: 0, position: 'relative',
+      height: 34, borderTop: `1px solid ${T.border}`,
       background: T.panel, fontFamily: "'Inter','Segoe UI',system-ui,sans-serif",
+      zIndex: 50,
     }}>
 
-      {/* ── Header ────────────────────────────────────────────────────────── */}
+      {/* ── Header — always 34 px ─────────────────────────────────────────── */}
       <div onClick={() => setOpen((o) => !o)} style={{
         height: 34, display: 'flex', alignItems: 'center',
         padding: '0 14px', cursor: 'pointer', gap: 10, userSelect: 'none',
@@ -236,9 +240,18 @@ const CablePanel = ({ cableConnect, setCableConnect }) => {
         <span style={{ fontSize: 12, color: T.textMuted }}>{open ? '▾' : '▸'}</span>
       </div>
 
-      {/* ── Expanded body ─────────────────────────────────────────────────── */}
+      {/* ── Expanded body — floats UPWARD over the canvas, never pushes layout ── */}
       {open && (
-        <div style={{ padding: '0 12px 10px' }}>
+        <div style={{
+          position: 'absolute', bottom: '100%', left: 0, right: 0,
+          background: T.panel,
+          borderTop: `1px solid ${T.border}`,
+          borderBottom: `1px solid ${T.border}`,
+          boxShadow: '0 -6px 20px rgba(0,0,0,0.12)',
+          maxHeight: 360, overflowY: 'auto',
+          padding: '8px 12px 10px',
+          zIndex: 50,
+        }}>
 
           {/* Cable type draw buttons */}
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
