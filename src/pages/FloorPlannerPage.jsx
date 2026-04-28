@@ -342,8 +342,34 @@ const FloorPlannerPage = () => {
             ? <FloorPlanEditor isDark={isDark} cableConnect={cableConnect} setCableConnect={setCableConnect} />
             : <FloorPlan3DScene />}
 
+          {/* Cable mode overlay — locks the canvas with a tinted border + banner */}
+          {cableConnect.active && viewMode === '2d' && (
+            <>
+              <div style={{
+                position: 'absolute', inset: 0, pointerEvents: 'none',
+                border: `2px solid ${cableConnect.type === 'network' ? '#22C55E' : cableConnect.type === 'power' ? '#EF4444' : '#F59E0B'}`,
+                borderRadius: 2, zIndex: 5,
+              }} />
+              <div style={{
+                position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+                background: '#0D1B2E', color: '#fff',
+                padding: '5px 16px', borderRadius: 20,
+                fontSize: 11, fontWeight: 600, letterSpacing: '0.3px',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                display: 'flex', alignItems: 'center', gap: 8,
+                border: '1px solid rgba(255,255,255,0.12)',
+                pointerEvents: 'none', zIndex: 10,
+              }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: ({ network: '#22C55E', power: '#EF4444', fiber: '#F59E0B', management: '#8B5CF6', kvm: '#06B6D4', custom: '#94A3B8' })[cableConnect.type] || '#22C55E', flexShrink: 0 }} />
+                <span style={{ color: 'rgba(255,255,255,0.6)' }}>Cable mode —</span>
+                <span>drag between components to connect</span>
+                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10 }}>· all other editing disabled</span>
+              </div>
+            </>
+          )}
+
           {/* Canvas overlay: selection info */}
-          {anySelected && viewMode === '2d' && (
+          {anySelected && viewMode === '2d' && !cableConnect.active && (
             <div style={{
               position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
               background: '#0D1B2E', color: '#fff',

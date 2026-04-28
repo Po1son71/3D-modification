@@ -911,6 +911,8 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const handler = (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      // All keyboard shortcuts disabled while in cable connect mode
+      if (cableConnect.active) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
       else if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); copySelected(); }
@@ -1012,7 +1014,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [undo, redo, deleteSelected, clearSelection, rotateSelectedFurniture, setSelectedIds, copySelected, pasteClipboard, updateRoom, updateFurniture, updateWall, updateDoor, groupSelected, ungroupSelected, setActiveTool]);
+  }, [undo, redo, deleteSelected, clearSelection, rotateSelectedFurniture, setSelectedIds, copySelected, pasteClipboard, updateRoom, updateFurniture, updateWall, updateDoor, groupSelected, ungroupSelected, setActiveTool, cableConnect]);
 
   // ── Draw canvas ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1435,7 +1437,8 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       ctx.restore();
     }
 
-    // ══ SELECTION OVERLAY — drawn last so handles are always on top ══════════
+    // ══ SELECTION OVERLAY — hidden in cable mode ═════════════════════════════
+    // All resize/rotate handles are suppressed while cable connect is active.
     const drawRotateHandleAt = (rhx, rhy, topCX, topCY, isHot) => {
       // Stem
       ctx.beginPath(); ctx.moveTo(topCX, topCY); ctx.lineTo(rhx, rhy);
@@ -1457,7 +1460,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       ctx.beginPath(); ctx.moveTo(ax - 3, ay - 1); ctx.lineTo(ax, ay); ctx.lineTo(ax - 1, ay + 3); ctx.stroke();
     };
 
-    if (selectedIds.length === 1 && !lockedIds.includes(selectedId)) {
+    if (selectedIds.length === 1 && !lockedIds.includes(selectedId) && !cableConnect.active) {
       const room = rooms.find((r) => r.id === selectedId);
       const furn = furniture.find((f) => f.id === selectedId);
       if (room) {
@@ -1554,7 +1557,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       }
     }
 
-    if (selectedIds.length > 1) {
+    if (selectedIds.length > 1 && !cableConnect.active) {
       const bbox = getMultiSelectBBox();
       if (bbox) {
         const sp1 = toScreen(bbox.x1, bbox.y1);
@@ -2827,16 +2830,25 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const { sx, sy } = getMP(e);
     const { x: wx, y: wy } = toWorld(sx, sy);
 
-    // ── Cable drag-connect mode ──────────────────────────────────────────────
-    if (cableConnect.active && e.button === 0) {
-      const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
-      const hit = [...furniture].reverse().find((f) =>
-        ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
-      );
-      if (hit) {
-        dragRef.current = { type: 'cable', fromId: hit.id, fromItem: hit, curWX: wx, curWY: wy };
-        forceRender((n) => n + 1);
+    // ── Cable mode — ALL other interactions blocked ──────────────────────────
+    if (cableConnect.active) {
+      // Allow middle-mouse / alt+drag pan so the user can still navigate
+      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+        panRef.current = { sx, sy, ox: offsetRef.current.x, oy: offsetRef.current.y };
+        return;
       }
+      // Left-click only: start cable drag from hovered furniture item
+      if (e.button === 0) {
+        const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
+        const hit = [...furniture].reverse().find((f) =>
+          ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
+        );
+        if (hit) {
+          dragRef.current = { type: 'cable', fromId: hit.id, fromItem: hit, curWX: wx, curWY: wy };
+          forceRender((n) => n + 1);
+        }
+      }
+      // Block everything else (right-click menu, selections, etc.)
       return;
     }
 
