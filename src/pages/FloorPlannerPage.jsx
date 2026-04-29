@@ -67,6 +67,7 @@ const FloorPlannerPage = () => {
   const jsonInputRef = useRef(null);
   const [pendingJson, setPendingJson] = useState(null);
   const [cableConnect, setCableConnect] = useState({ active: false, type: 'network' });
+  const [measureState, setMeasureState] = useState({ active: false, points: [], finished: false });
 
   const handleLoadJson = useCallback((e) => {
     const file = e.target.files[0];
@@ -339,7 +340,7 @@ const FloorPlannerPage = () => {
           background: T.bg,
         }}>
           {viewMode === '2d'
-            ? <FloorPlanEditor isDark={isDark} cableConnect={cableConnect} setCableConnect={setCableConnect} />
+            ? <FloorPlanEditor isDark={isDark} cableConnect={cableConnect} setCableConnect={setCableConnect} measureState={measureState} setMeasureState={setMeasureState} />
             : <FloorPlan3DScene />}
 
           {/* Cable mode overlay — locks the canvas with a tinted border + banner */}
@@ -392,7 +393,7 @@ const FloorPlannerPage = () => {
       </div>
 
       {/* ── Cable panel ──────────────────────────────────────────── */}
-      <CablePanel cableConnect={cableConnect} setCableConnect={setCableConnect} />
+      <CablePanel cableConnect={cableConnect} setCableConnect={setCableConnect} measureState={measureState} setMeasureState={setMeasureState} />
 
       {/* ── Status bar ───────────────────────────────────────────── */}
       <div style={{

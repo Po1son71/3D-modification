@@ -176,12 +176,19 @@ const RenameRow = ({ cable, onSave, onCancel, T }) => {
 };
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-const CablePanel = ({ cableConnect, setCableConnect }) => {
+const CablePanel = ({ cableConnect, setCableConnect, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {} }) => {
   const T = useFloorTheme();
   const [open, setOpen] = useState(false);
   const [renamingId, setRenamingId] = useState(null);
 
   const { cables, furniture, selectedIds, deleteCable, updateCable } = useFloorPlannerStore();
+
+  const totalMeasuredDist = measureState.points.length > 1
+    ? measureState.points.reduce((acc, pt, i) => {
+        if (i === 0) return 0;
+        return acc + Math.hypot(pt.x - measureState.points[i-1].x, pt.y - measureState.points[i-1].y);
+      }, 0)
+    : 0;
 
   const activeType = cableConnect.type;
   const connecting = cableConnect.active;
@@ -284,7 +291,92 @@ const CablePanel = ({ cableConnect, setCableConnect }) => {
             )}
           </div>
 
-          <div style={{ height: 1, background: T.border, margin: '4px 0 8px' }} />
+          <div style={{ height: 1, background: T.border, margin: '4px 0 6px' }} />
+
+          {/* ── Measure cable ─────────────────────────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <button
+              onClick={() => {
+                if (measureState.active) {
+                  setMeasureState({ active: false, points: [], finished: false });
+                } else {
+                  setMeasureState({ active: true, points: [], finished: false });
+                  // Disable cable connect if active
+                  if (cableConnect.active) setCableConnect({ ...cableConnect, active: false });
+                }
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                fontSize: 11, fontWeight: measureState.active ? 700 : 500,
+                border: `1px solid ${measureState.active ? '#F97316' : T.border}`,
+                background: measureState.active ? 'rgba(249,115,22,0.12)' : T.panelHeader,
+                color: measureState.active ? '#F97316' : T.textSub,
+                transition: 'all 0.1s',
+              }}
+            >
+              <span>📏</span>
+              {measureState.active ? 'Stop Measuring' : 'Measure Cable'}
+            </button>
+
+            {(measureState.active || measureState.finished) && measureState.points.length > 1 && (
+              <span style={{
+                fontSize: 11, fontWeight: 700, color: '#F97316',
+                background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)',
+                padding: '2px 8px', borderRadius: 4,
+              }}>
+                {totalMeasuredDist.toFixed(2)} m
+              </span>
+            )}
+
+            {(measureState.finished || (measureState.points.length > 0 && !measureState.active)) && (
+              <button
+                onClick={() => setMeasureState({ active: false, points: [], finished: false })}
+                style={{
+                  padding: '3px 7px', borderRadius: 4, border: `1px solid ${T.border}`,
+                  background: 'transparent', color: T.textMuted, cursor: 'pointer', fontSize: 10,
+                }}
+              >Clear</button>
+            )}
+          </div>
+
+          {measureState.active && (
+            <div style={{
+              fontSize: 10, color: '#F97316', padding: '4px 8px', borderRadius: 4,
+              background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.2)',
+              marginBottom: 6, lineHeight: 1.5,
+            }}>
+              Click to add waypoints · Double-click to finish · Esc or right-click to cancel
+            </div>
+          )}
+
+          {measureState.finished && measureState.points.length > 1 && (
+            <div style={{
+              padding: '6px 8px', borderRadius: 5, marginBottom: 6,
+              background: T.panelHeader, border: `1px solid rgba(249,115,22,0.25)`,
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#F97316', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                Measurement Result
+              </div>
+              {measureState.points.map((pt, i) => {
+                if (i === 0) return null;
+                const segDist = Math.hypot(pt.x - measureState.points[i-1].x, pt.y - measureState.points[i-1].y);
+                return (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.textSub, marginBottom: 2 }}>
+                    <span>Segment {i}</span>
+                    <span style={{ fontWeight: 600, color: T.text }}>{segDist.toFixed(2)} m</span>
+                  </div>
+                );
+              })}
+              <div style={{ height: 1, background: T.border, margin: '4px 0' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700 }}>
+                <span style={{ color: T.textSub }}>Total</span>
+                <span style={{ color: '#F97316' }}>{totalMeasuredDist.toFixed(2)} m</span>
+              </div>
+            </div>
+          )}
+
+          <div style={{ height: 1, background: T.border, margin: '2px 0 8px' }} />
 
           {/* ── Topology / connection details ──────────────────────────────── */}
           {!selectedId ? (

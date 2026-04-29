@@ -694,7 +694,7 @@ function routePreview(from, toWX, toWY) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type: 'network', fromId: null }, setCableConnect = () => {} }) => {
+const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type: 'network' }, setCableConnect = () => {}, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {} }) => {
   const containerRef = useRef(null);
   const canvasRef    = useRef(null);
 
@@ -728,6 +728,8 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
   const panRef         = useRef(null);    // pan state
   const hoverRef       = useRef(null);    // furniture hover position
   const cableHoverRef  = useRef(null);    // furniture item hovered in cable mode
+  const measureMouseRef = useRef(null);   // cursor world pos during measurement (perf: ref not state)
+  const lastClickRef    = useRef(0);      // timestamp of last click for double-click detection
   const doorHoverRef   = useRef(null);    // door placement preview
   const boxSelectRef    = useRef(null);    // box-select drag: { startSX, startSY, curSX, curSY, additive }
   const hoverHandleRef  = useRef(null);    // handle corner/edge key the mouse is hovering ('nw', 'n', …)
@@ -911,8 +913,16 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const handler = (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      // All keyboard shortcuts disabled while in cable connect mode
+      // All keyboard shortcuts disabled while in cable connect or measure mode
       if (cableConnect.active) return;
+      if (measureState.active) {
+        if (e.key === 'Escape') {
+          setMeasureState({ active: false, points: [], finished: false });
+          measureMouseRef.current = null;
+          forceRender((n) => n + 1);
+        }
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
       else if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); copySelected(); }
@@ -1045,8 +1055,87 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     });
     furniture.forEach((item) => drawFurniture(ctx, item, selectedIds.includes(item.id)));
 
-    // ── Port indicators — show only on hovered/source item ──────────────────
+    // sc is used by measurement, port indicators, and cable drawing below
     const sc = scaleRef.current;
+
+    // ── Measurement path drawing ─────────────────────────────────────────────
+    const mPts  = measureState.points;
+    const mMouse = measureMouseRef.current;
+    if ((measureState.active || measureState.finished) && mPts.length > 0) {
+      const MCOL = '#F97316';
+      // Build full point list including live cursor for active mode
+      const allMPts = measureState.active && mMouse
+        ? [...mPts, mMouse]
+        : mPts;
+
+      // Dashed path
+      ctx.save();
+      ctx.strokeStyle = MCOL;
+      ctx.lineWidth   = Math.max(1.5, 2 * sc);
+      ctx.lineCap     = 'round'; ctx.lineJoin = 'round';
+      ctx.setLineDash([7 * sc, 4 * sc]);
+      ctx.beginPath();
+      const ms0 = toScreen(allMPts[0].x, allMPts[0].y);
+      ctx.moveTo(ms0.x, ms0.y);
+      for (let i = 1; i < allMPts.length; i++) {
+        const si = toScreen(allMPts[i].x, allMPts[i].y);
+        ctx.lineTo(si.x, si.y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Waypoint circles + segment distance labels
+      let totalDist = 0;
+      for (let i = 0; i < allMPts.length - 1; i++) {
+        const segDist = Math.hypot(allMPts[i+1].x - allMPts[i].x, allMPts[i+1].y - allMPts[i].y);
+        totalDist += segDist;
+        const mp = toScreen((allMPts[i].x + allMPts[i+1].x) / 2, (allMPts[i].y + allMPts[i+1].y) / 2);
+        const lbl = `${segDist.toFixed(2)} m`;
+        const lw  = lbl.length * 5.5 * sc + 8 * sc;
+        ctx.fillStyle = MCOL;
+        if (ctx.roundRect) {
+          ctx.beginPath(); ctx.roundRect(mp.x - lw/2, mp.y - 8*sc, lw, 14*sc, 3); ctx.fill();
+        } else {
+          ctx.fillRect(mp.x - lw/2, mp.y - 8*sc, lw, 14*sc);
+        }
+        ctx.fillStyle = '#fff';
+        ctx.font = `600 ${Math.max(8, 9*sc)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(lbl, mp.x, mp.y - 1);
+      }
+
+      // Waypoint dots
+      allMPts.forEach((pt, i) => {
+        const sp = toScreen(pt.x, pt.y);
+        ctx.beginPath(); ctx.arc(sp.x, sp.y, (i === 0 ? 5 : 4) * sc, 0, Math.PI * 2);
+        ctx.fillStyle   = i === 0 ? '#22C55E' : MCOL;
+        ctx.shadowColor = i === 0 ? '#22C55E' : MCOL; ctx.shadowBlur = 6;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+
+      // Total distance badge near last point
+      if (allMPts.length > 1) {
+        const lp  = toScreen(allMPts[allMPts.length - 1].x, allMPts[allMPts.length - 1].y);
+        const tlbl = `Total: ${totalDist.toFixed(2)} m`;
+        const tw   = tlbl.length * 6 * sc + 14 * sc;
+        ctx.fillStyle = '#0D1B2E';
+        if (ctx.roundRect) {
+          ctx.beginPath(); ctx.roundRect(lp.x - tw/2, lp.y + 8*sc, tw, 18*sc, 5); ctx.fill();
+        } else {
+          ctx.fillRect(lp.x - tw/2, lp.y + 8*sc, tw, 18*sc);
+        }
+        ctx.fillStyle = '#F97316';
+        ctx.font = `700 ${Math.max(9, 10*sc)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(tlbl, lp.x, lp.y + 17*sc);
+      }
+      ctx.restore();
+    }
+
+    // ── Port indicators — show only on hovered/source item ──────────────────
     if (cableConnect.active) {
       const typeColor = CABLE_TYPES[cableConnect.type]?.color || '#22C55E';
       const cd = dragRef.current?.type === 'cable' ? dragRef.current : null;
@@ -1610,7 +1699,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     // ════════════════════════════════════════════════════════════════════════
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rooms, furniture, doors, walls, groups, cables, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick, cableConnect, selectedIds]);
+  }, [rooms, furniture, doors, walls, groups, cables, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick, cableConnect, measureState]);
 
   // ── Group outline ─────────────────────────────────────────────────────────
   const drawGroupOutline = (ctx, group) => {
@@ -2852,6 +2941,43 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       return;
     }
 
+    // ── Measure mode ────────────────────────────────────────────────────────
+    if (measureState.active) {
+      if (e.button === 2) {
+        // Right-click: cancel measurement
+        setMeasureState({ active: false, points: [], finished: false });
+        measureMouseRef.current = null;
+        forceRender((n) => n + 1);
+        return;
+      }
+      if (e.button === 0) {
+        const now = Date.now();
+        const isDbl = now - lastClickRef.current < 300;
+        lastClickRef.current = now;
+
+        if (isDbl && measureState.points.length >= 2) {
+          // Double-click → finish measurement
+          setMeasureState((prev) => ({ ...prev, active: false, finished: true }));
+          measureMouseRef.current = null;
+          forceRender((n) => n + 1);
+          return;
+        }
+
+        // Snap to component center if clicking on one, else use raw world pos
+        const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
+        const hit = [...furniture].reverse().find((f) =>
+          ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
+        );
+        const pt = hit
+          ? { x: hit.x + hit.width / 2, y: hit.y + hit.depth / 2 }
+          : { x: wx, y: wy };
+
+        setMeasureState((prev) => ({ ...prev, points: [...prev.points, pt] }));
+        forceRender((n) => n + 1);
+      }
+      return;
+    }
+
     // Right-click → context menu
     if (e.button === 2) {
       e.preventDefault();
@@ -3261,6 +3387,12 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
   const onMouseMove = (e) => {
     const { sx, sy } = getMP(e);
     const { x: wx, y: wy } = toWorld(sx, sy);
+
+    // Always update measure cursor so the live line follows the mouse
+    if (measureState.active) {
+      measureMouseRef.current = { x: wx, y: wy };
+      forceRender((n) => n + 1);
+    }
 
     if (panRef.current) {
       const p = panRef.current;
@@ -3726,6 +3858,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
 
   const cursor =
     panRef.current                                          ? 'grabbing' :
+    measureState.active                                     ? 'crosshair' :
     cableConnect.active && dragRef.current?.type === 'cable' ? 'grabbing' :
     cableConnect.active                                     ? 'crosshair' :
     activeTool === 'room'                                   ? 'crosshair' :
