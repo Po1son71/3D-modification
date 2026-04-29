@@ -294,13 +294,14 @@ const CablePanel = ({ cableConnect, setCableConnect, measureState = { active: fa
 
           {/* ── Measure cable ─────────────────────────────────────────────── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            {/* Start / Stop button */}
             <button
               onClick={() => {
                 if (measureState.active) {
-                  setMeasureState({ active: false, points: [], finished: false });
+                  // Stop but keep the drawn measurement visible
+                  setMeasureState((prev) => ({ ...prev, active: false, finished: true }));
                 } else {
                   setMeasureState({ active: true, points: [], finished: false });
-                  // Disable cable connect if active
                   if (cableConnect.active) setCableConnect({ ...cableConnect, active: false });
                 }
               }}
@@ -318,6 +319,7 @@ const CablePanel = ({ cableConnect, setCableConnect, measureState = { active: fa
               {measureState.active ? 'Stop Measuring' : 'Measure Cable'}
             </button>
 
+            {/* Live / finished total */}
             {(measureState.active || measureState.finished) && measureState.points.length > 1 && (
               <span style={{
                 fontSize: 11, fontWeight: 700, color: '#F97316',
@@ -328,14 +330,21 @@ const CablePanel = ({ cableConnect, setCableConnect, measureState = { active: fa
               </span>
             )}
 
-            {(measureState.finished || (measureState.points.length > 0 && !measureState.active)) && (
+            {/* Clear — removes the drawn measurement from canvas */}
+            {(measureState.active || measureState.finished || measureState.points.length > 0) && (
               <button
                 onClick={() => setMeasureState({ active: false, points: [], finished: false })}
                 style={{
-                  padding: '3px 7px', borderRadius: 4, border: `1px solid ${T.border}`,
-                  background: 'transparent', color: T.textMuted, cursor: 'pointer', fontSize: 10,
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '4px 9px', borderRadius: 6, cursor: 'pointer',
+                  fontSize: 11, fontWeight: 500,
+                  border: `1px solid rgba(239,68,68,0.35)`,
+                  background: 'rgba(239,68,68,0.07)', color: '#EF4444',
+                  transition: 'all 0.1s',
                 }}
-              >Clear</button>
+              >
+                🗑 Clear
+              </button>
             )}
           </div>
 

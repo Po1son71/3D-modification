@@ -913,16 +913,19 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const handler = (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      // All keyboard shortcuts disabled while cable panel is open or in measure mode
-      if (cablePanelOpen || cableConnect.active) return;
+
+      // Measure ESC must fire regardless of panel state
       if (measureState.active) {
         if (e.key === 'Escape') {
-          setMeasureState({ active: false, points: [], finished: false });
+          setMeasureState((prev) => ({ ...prev, active: false, finished: true }));
           measureMouseRef.current = null;
           forceRender((n) => n + 1);
         }
         return;
       }
+
+      // All other shortcuts disabled while cable panel is open
+      if (cablePanelOpen || cableConnect.active) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
       else if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); copySelected(); }
@@ -2967,14 +2970,35 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const { sx, sy } = getMP(e);
     const { x: wx, y: wy } = toWorld(sx, sy);
 
-    // ── Cable panel open — ALL canvas interactions blocked ───────────────────
-    if (cablePanelOpen || cableConnect.active) {
-      // Allow middle-mouse / alt+drag pan so the user can still navigate
+    // ── Cable panel open (panel visible, not actively drawing or measuring) ───
+    // Allow pan + component selection so users can inspect wire connections.
+    // Everything else (drag, resize, rotate, room/wall tools) is blocked.
+    if (cablePanelOpen && !cableConnect.active && !measureState.active) {
       if (e.button === 1 || (e.button === 0 && e.altKey)) {
         panRef.current = { sx, sy, ox: offsetRef.current.x, oy: offsetRef.current.y };
         return;
       }
-      // Left-click only: start cable drag from hovered furniture item
+      if (e.button === 0) {
+        const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
+        const hit = [...furniture].reverse().find((f) =>
+          ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
+        );
+        if (hit) {
+          if (e.shiftKey) selectAdd(hit.id);
+          else selectOne(hit.id);
+        } else {
+          clearSelection();
+        }
+      }
+      return;
+    }
+
+    // ── Cable draw mode — drag to connect components ──────────────────────────
+    if (cableConnect.active) {
+      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+        panRef.current = { sx, sy, ox: offsetRef.current.x, oy: offsetRef.current.y };
+        return;
+      }
       if (e.button === 0) {
         const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
         const hit = [...furniture].reverse().find((f) =>
@@ -2985,7 +3009,6 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
           forceRender((n) => n + 1);
         }
       }
-      // Block everything else (right-click menu, selections, etc.)
       return;
     }
 
