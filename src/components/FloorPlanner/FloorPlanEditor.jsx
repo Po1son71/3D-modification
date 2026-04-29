@@ -694,7 +694,7 @@ function routePreview(from, toWX, toWY) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type: 'network' }, setCableConnect = () => {}, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {} }) => {
+const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type: 'network' }, setCableConnect = () => {}, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {}, cablePanelOpen = false }) => {
   const containerRef = useRef(null);
   const canvasRef    = useRef(null);
 
@@ -913,8 +913,8 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const handler = (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      // All keyboard shortcuts disabled while in cable connect or measure mode
-      if (cableConnect.active) return;
+      // All keyboard shortcuts disabled while cable panel is open or in measure mode
+      if (cablePanelOpen || cableConnect.active) return;
       if (measureState.active) {
         if (e.key === 'Escape') {
           setMeasureState({ active: false, points: [], finished: false });
@@ -1196,6 +1196,39 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const activeSel = selectedIds[0] ?? null;
     const hasSelection = !!activeSel;
 
+    // Precompute per-cable lateral offsets so cables from the same face fan out
+    // Only applies when a component is selected (keeps canvas clean otherwise)
+    const cablePortOffsets = {}; // cable.id → metres offset along face tangent
+    if (hasSelection) {
+      const SPACING = 0.18;
+      const selItem = furniture.find((f) => f.id === activeSel);
+      if (selItem) {
+        const selCables = (cables || []).filter((c) => {
+          const f = furniture.find((fi) => fi.id === c.fromId);
+          const t = furniture.find((fi) => fi.id === c.toId);
+          return (c.fromId === activeSel || c.toId === activeSel) && f && t;
+        });
+
+        // Group by which face of the selected item each cable exits from
+        const frontGroup = [], backGroup = [];
+        selCables.forEach((c) => {
+          const other = furniture.find((fi) =>
+            fi.id === (c.fromId === activeSel ? c.toId : c.fromId)
+          );
+          if (!other) return;
+          const port = nearestPort(selItem, other.x + other.width / 2, other.y + other.depth / 2);
+          (port.ny >= 0 ? frontGroup : backGroup).push(c.id);
+        });
+
+        [frontGroup, backGroup].forEach((group) => {
+          const N = group.length;
+          group.forEach((id, i) => {
+            cablePortOffsets[id] = (i - (N - 1) / 2) * SPACING;
+          });
+        });
+      }
+    }
+
     (cables || []).forEach((cable) => {
       const from = furniture.find((f) => f.id === cable.fromId);
       const to   = furniture.find((f) => f.id === cable.toId);
@@ -1204,7 +1237,22 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       const isConnected = hasSelection && (cable.fromId === activeSel || cable.toId === activeSel);
       const alpha = hasSelection ? (isConnected ? 1 : 0.12) : 1;
 
-      const pts = routeCable(from, to);
+      // Apply lateral fan offset to the selected component's port end
+      let pts = routeCable(from, to);
+      const portOffset = cablePortOffsets[cable.id] ?? 0;
+      if (portOffset !== 0 && isConnected) {
+        const selItem = furniture.find((f) => f.id === activeSel);
+        const isFromSide = cable.fromId === activeSel;
+        const R2 = ((selItem?.rotation || 0) * Math.PI) / 180;
+        // Tangent direction along the face (perpendicular to face normal)
+        const tx = Math.cos(R2), ty = Math.sin(R2);
+        pts = pts.map((pt, i) => {
+          // Offset only the 2 points at the selected component's end
+          const atSelEnd = isFromSide ? i < 2 : i >= pts.length - 2;
+          return atSelEnd ? { x: pt.x + tx * portOffset, y: pt.y + ty * portOffset } : pt;
+        });
+      }
+
       drawPolyline(pts, cable.color, false, alpha);
 
       // Endpoint dots — bigger and glowing for active connections
@@ -1549,7 +1597,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       ctx.beginPath(); ctx.moveTo(ax - 3, ay - 1); ctx.lineTo(ax, ay); ctx.lineTo(ax - 1, ay + 3); ctx.stroke();
     };
 
-    if (selectedIds.length === 1 && !lockedIds.includes(selectedId) && !cableConnect.active) {
+    if (selectedIds.length === 1 && !lockedIds.includes(selectedId) && !cablePanelOpen && !cableConnect.active) {
       const room = rooms.find((r) => r.id === selectedId);
       const furn = furniture.find((f) => f.id === selectedId);
       if (room) {
@@ -1646,7 +1694,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       }
     }
 
-    if (selectedIds.length > 1 && !cableConnect.active) {
+    if (selectedIds.length > 1 && !cablePanelOpen && !cableConnect.active) {
       const bbox = getMultiSelectBBox();
       if (bbox) {
         const sp1 = toScreen(bbox.x1, bbox.y1);
@@ -2919,8 +2967,8 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     const { sx, sy } = getMP(e);
     const { x: wx, y: wy } = toWorld(sx, sy);
 
-    // ── Cable mode — ALL other interactions blocked ──────────────────────────
-    if (cableConnect.active) {
+    // ── Cable panel open — ALL canvas interactions blocked ───────────────────
+    if (cablePanelOpen || cableConnect.active) {
       // Allow middle-mouse / alt+drag pan so the user can still navigate
       if (e.button === 1 || (e.button === 0 && e.altKey)) {
         panRef.current = { sx, sy, ox: offsetRef.current.x, oy: offsetRef.current.y };
@@ -3690,7 +3738,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       forceRender((n) => n + 1);
     }
 
-    if (cableConnect.active && !dragRef.current) {
+    if (cableConnect.active && !cablePanelOpen && !dragRef.current) {
       const rot = (f) => ((f.rotation || 0) * Math.PI) / 180;
       const hit = [...furniture].reverse().find((f) =>
         ptInRotatedRect(wx, wy, f.x, f.y, f.width, f.depth, rot(f))
@@ -3859,6 +3907,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
   const cursor =
     panRef.current                                          ? 'grabbing' :
     measureState.active                                     ? 'crosshair' :
+    cablePanelOpen                                          ? 'default' :
     cableConnect.active && dragRef.current?.type === 'cable' ? 'grabbing' :
     cableConnect.active                                     ? 'crosshair' :
     activeTool === 'room'                                   ? 'crosshair' :

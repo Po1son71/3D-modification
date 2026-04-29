@@ -45,7 +45,7 @@ const TopologyDiagram = ({ selectedId, selectedCables, furniture, onRename, T })
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: H, overflow: 'visible' }}>
       <svg width={W} height={H} style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
         {/* Lines + wire labels */}
-        {targets.map(({ cable, connPt, cy, otherId, dir }) => {
+        {targets.map(({ cable, connPt }) => {
           const mx = (srcPt.x + connPt.x) / 2;
           const my = (srcPt.y + connPt.y) / 2;
           const typeInfo = CABLE_TYPES[cable.type] || CABLE_TYPES.custom;
@@ -176,9 +176,8 @@ const RenameRow = ({ cable, onSave, onCancel, T }) => {
 };
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-const CablePanel = ({ cableConnect, setCableConnect, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {} }) => {
+const CablePanel = ({ cableConnect, setCableConnect, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {}, open = false, setOpen = () => {} }) => {
   const T = useFloorTheme();
-  const [open, setOpen] = useState(false);
   const [renamingId, setRenamingId] = useState(null);
 
   const { cables, furniture, selectedIds, deleteCable, updateCable } = useFloorPlannerStore();
