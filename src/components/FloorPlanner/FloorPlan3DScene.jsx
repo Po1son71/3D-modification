@@ -59,33 +59,23 @@ const ModelMeshInner = React.memo(({ modelPath, width, height3d, depth, rotation
   const { clone, offset } = useMemo(() => {
     const clone = scene.clone(true);
 
-    // Measure raw bounding box of the loaded model
     const box  = new THREE.Box3().setFromObject(clone);
     const size = box.getSize(new THREE.Vector3());
-
-    // Scale non-uniformly to exactly match the defined item dimensions
-    const sx = size.x > 0.001 ? width   / size.x : 1;
+    const sx = size.x > 0.001 ? width    / size.x : 1;
     const sy = size.y > 0.001 ? height3d / size.y : 1;
-    const sz = size.z > 0.001 ? depth   / size.z : 1;
+    const sz = size.z > 0.001 ? depth    / size.z : 1;
     clone.scale.set(sx, sy, sz);
 
-    // After scaling, center X/Z and bottom-align Y
-    const scaled  = new THREE.Box3().setFromObject(clone);
-    const center  = scaled.getCenter(new THREE.Vector3());
-    const offset  = { x: -center.x, y: -scaled.min.y, z: -center.z };
-
+    const scaled = new THREE.Box3().setFromObject(clone);
+    const center = scaled.getCenter(new THREE.Vector3());
+    const offset = { x: -center.x, y: -scaled.min.y, z: -center.z };
     return { clone, offset };
   }, [scene, width, height3d, depth]);
 
-  // Replace every mesh's material with a uniform MeshStandardMaterial so the
-  // whole model renders as one solid color regardless of the original materials.
   useMemo(() => {
     if (!color) return;
     const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 });
-    clone.traverse((child) => {
-      if (!child.isMesh) return;
-      child.material = mat;
-    });
+    clone.traverse((child) => { if (child.isMesh) child.material = mat; });
   }, [clone, color]);
 
   return (
@@ -263,10 +253,7 @@ const PodMesh = React.memo(({ item }) => {
 
 // ── Simple fallback box (used when no modelPath, or GLB fails to load) ────────
 const BoxMesh = ({ width, height3d, depth, color, rotation }) => (
-  <mesh
-    rotation={[0, -(rotation * Math.PI) / 180, 0]}
-
-  >
+  <mesh rotation={[0, -(rotation * Math.PI) / 180, 0]}>
     <boxGeometry args={[width, height3d, depth]} />
     <meshStandardMaterial color={color} roughness={0.6} />
   </mesh>
@@ -741,7 +728,23 @@ const FWWallMesh = React.memo(({ wall, wallDoors }) => {
   );
 });
 
-const FloorPlan3DScene = () => {
+// ── Threshold filter ─────────────────────────────────────────────────────────
+const SENSOR_OPTIONS = [
+  { value: 'height3d',    label: 'Height (m)' },
+  { value: 'temperature', label: 'Temperature (°C)' },
+  { value: 'power',       label: 'Power (kW)' },
+  { value: 'humidity',    label: 'Humidity (%RH)' },
+  { value: 'airflow',     label: 'Airflow (CFM)' },
+];
+
+function getSensorValue(item, property) {
+  if (property === 'height3d') return item.height3d ?? 0;
+  const sensors = (item.sensors || []).filter((s) => s.type === property);
+  if (!sensors.length) return null;
+  return sensors.reduce((a, s) => a + (s.value ?? 0), 0) / sensors.length;
+}
+
+const FloorPlan3DScene = ({ threshold = { enabled: false, property: 'height3d', comparison: 'above', value: 2.0, panelOpen: false }, setThreshold = () => {}, itemPasses = () => true }) => {
   const { rooms, furniture, doors, walls } = useFloorPlannerStore();
   const hasContent = rooms.length > 0 || (walls && walls.length > 0);
 
@@ -856,9 +859,9 @@ const FloorPlan3DScene = () => {
             return wall ? <FWDoorMesh key={door.id} door={door} wall={wall} /> : null;
           })}
 
-          {furniture.map((item) => (
-            <FurnitureMesh key={item.id} item={item} />
-          ))}
+          {furniture.map((item) =>
+            itemPasses(item) ? <FurnitureMesh key={item.id} item={item} /> : null
+          )}
 
         </Suspense>
 

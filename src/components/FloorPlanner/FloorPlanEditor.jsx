@@ -694,7 +694,7 @@ function routePreview(from, toWX, toWY) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type: 'network' }, setCableConnect = () => {}, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {}, cablePanelOpen = false }) => {
+const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type: 'network' }, setCableConnect = () => {}, measureState = { active: false, points: [], finished: false }, setMeasureState = () => {}, cablePanelOpen = false, itemPasses = () => true }) => {
   const containerRef = useRef(null);
   const canvasRef    = useRef(null);
 
@@ -1056,7 +1056,10 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       const fw = walls.find((w) => w.id === door.wallId);
       if (fw) drawFWDoor(ctx, door, fw, selectedIds.includes(door.id));
     });
-    furniture.forEach((item) => drawFurniture(ctx, item, selectedIds.includes(item.id)));
+    furniture.forEach((item) => {
+      if (!itemPasses(item)) return;
+      drawFurniture(ctx, item, selectedIds.includes(item.id));
+    });
 
     // sc is used by measurement, port indicators, and cable drawing below
     const sc = scaleRef.current;
@@ -1236,6 +1239,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
       const from = furniture.find((f) => f.id === cable.fromId);
       const to   = furniture.find((f) => f.id === cable.toId);
       if (!from || !to) return;
+      if (!itemPasses(from) || !itemPasses(to)) return;
 
       const isConnected = hasSelection && (cable.fromId === activeSel || cable.toId === activeSel);
       const alpha = hasSelection ? (isConnected ? 1 : 0.12) : 1;
@@ -1750,7 +1754,7 @@ const FloorPlanEditor = ({ isDark = false, cableConnect = { active: false, type:
     // ════════════════════════════════════════════════════════════════════════
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rooms, furniture, doors, walls, groups, cables, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick, cableConnect, measureState]);
+  }, [rooms, furniture, doors, walls, groups, cables, selectedIds, lockedIds, canvasSize, scale, offset, activeTool, activeFurnitureDef, showHeatmap, gridSize, renderTick, cableConnect, measureState, itemPasses]);
 
   // ── Group outline ─────────────────────────────────────────────────────────
   const drawGroupOutline = (ctx, group) => {

@@ -69,6 +69,20 @@ const FloorPlannerPage = () => {
   const [cableConnect, setCableConnect] = useState({ active: false, type: 'network' });
   const [cablePanelOpen, setCablePanelOpen] = useState(false);
   const [measureState, setMeasureState] = useState({ active: false, points: [], finished: false });
+  const [threshold, setThreshold] = useState({ enabled: false, property: 'height3d', comparison: 'above', value: 2.0, panelOpen: false });
+
+  const getSensorValue = (item, property) => {
+    if (property === 'height3d') return item.height3d ?? 0;
+    const sensors = (item.sensors || []).filter((s) => s.type === property);
+    if (!sensors.length) return null;
+    return sensors.reduce((a, s) => a + (s.value ?? 0), 0) / sensors.length;
+  };
+  const itemPasses = (item) => {
+    if (!threshold.enabled) return true;
+    const val = getSensorValue(item, threshold.property);
+    if (val === null) return false;
+    return threshold.comparison === 'above' ? val >= threshold.value : val <= threshold.value;
+  };
 
   const handleLoadJson = useCallback((e) => {
     const file = e.target.files[0];
@@ -341,8 +355,101 @@ const FloorPlannerPage = () => {
           background: T.bg,
         }}>
           {viewMode === '2d'
-            ? <FloorPlanEditor isDark={isDark} cableConnect={cableConnect} setCableConnect={setCableConnect} measureState={measureState} setMeasureState={setMeasureState} cablePanelOpen={cablePanelOpen} />
-            : <FloorPlan3DScene />}
+            ? <FloorPlanEditor isDark={isDark} cableConnect={cableConnect} setCableConnect={setCableConnect} measureState={measureState} setMeasureState={setMeasureState} cablePanelOpen={cablePanelOpen} itemPasses={itemPasses} />
+            : <FloorPlan3DScene threshold={threshold} setThreshold={setThreshold} itemPasses={itemPasses} />}
+
+          {/* ── Threshold filter panel — visible in both 2D and 3D ──────────── */}
+          {(() => {
+            const T_ACC = '#0EA5E9';
+            const SENSOR_OPTS = [
+              { value: 'height3d',    label: 'Height (m)' },
+              { value: 'temperature', label: 'Temperature (°C)' },
+              { value: 'power',       label: 'Power (kW)' },
+              { value: 'humidity',    label: 'Humidity (%RH)' },
+              { value: 'airflow',     label: 'Airflow (CFM)' },
+            ];
+            const qty = threshold.enabled
+              ? furniture.filter((f) => itemPasses(f)).length
+              : furniture.length;
+            return (
+              <div style={{
+                position: 'absolute', top: 12, right: 12, zIndex: 30,
+                fontFamily: "'Inter','Segoe UI',sans-serif", width: 240,
+              }}>
+                <button
+                  onClick={() => setThreshold((t) => ({ ...t, panelOpen: !t.panelOpen }))}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 7,
+                    padding: '7px 12px', cursor: 'pointer',
+                    borderRadius: threshold.panelOpen ? '8px 8px 0 0' : 8,
+                    border: `1px solid ${threshold.enabled ? T_ACC : 'rgba(0,0,0,0.18)'}`,
+                    background: threshold.enabled ? 'rgba(14,165,233,0.12)' : 'rgba(255,255,255,0.92)',
+                    backdropFilter: 'blur(6px)', boxShadow: '0 2px 12px rgba(0,0,0,0.14)',
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>🔆</span>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: threshold.enabled ? T_ACC : '#334155', textAlign: 'left' }}>
+                    Threshold Filter
+                  </span>
+                  {threshold.enabled && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T_ACC, background: 'rgba(14,165,233,0.15)', padding: '1px 6px', borderRadius: 3 }}>
+                      {qty}/{furniture.length}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11, color: '#94A3B8' }}>{threshold.panelOpen ? '▾' : '▸'}</span>
+                </button>
+
+                {threshold.panelOpen && (
+                  <div style={{
+                    background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(8px)',
+                    border: '1px solid rgba(0,0,0,0.14)', borderTop: 'none',
+                    borderRadius: '0 0 8px 8px', boxShadow: '0 6px 20px rgba(0,0,0,0.14)',
+                    padding: '10px 12px',
+                  }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={threshold.enabled}
+                        onChange={(e) => setThreshold((t) => ({ ...t, enabled: e.target.checked }))}
+                        style={{ accentColor: T_ACC, width: 14, height: 14 }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>Enable filter</span>
+                    </label>
+
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Property</div>
+                      <select value={threshold.property}
+                        onChange={(e) => setThreshold((t) => ({ ...t, property: e.target.value }))}
+                        style={{ width: '100%', padding: '5px 7px', fontSize: 12, borderRadius: 5, border: '1px solid #CBD5E1', background: '#F8FAFC', color: '#1E293B', outline: 'none' }}>
+                        {SENSOR_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Show if</div>
+                        <select value={threshold.comparison}
+                          onChange={(e) => setThreshold((t) => ({ ...t, comparison: e.target.value }))}
+                          style={{ width: '100%', padding: '5px 7px', fontSize: 12, borderRadius: 5, border: '1px solid #CBD5E1', background: '#F8FAFC', color: '#1E293B', outline: 'none' }}>
+                          <option value="above">≥ value</option>
+                          <option value="below">≤ value</option>
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Value</div>
+                        <input type="number" step="0.1" value={threshold.value}
+                          onChange={(e) => setThreshold((t) => ({ ...t, value: parseFloat(e.target.value) || 0 }))}
+                          style={{ width: '100%', padding: '5px 7px', fontSize: 12, borderRadius: 5, border: '1px solid #CBD5E1', background: '#F8FAFC', color: '#1E293B', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+
+                    {threshold.enabled && (
+                      <div style={{ padding: '5px 8px', borderRadius: 5, background: 'rgba(14,165,233,0.08)', border: '1px solid rgba(14,165,233,0.2)', fontSize: 11, color: T_ACC, textAlign: 'center' }}>
+                        <strong>{qty}</strong> of <strong>{furniture.length}</strong> items visible
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Cable mode overlay — locks the canvas with a tinted border + banner */}
           {cableConnect.active && viewMode === '2d' && (
